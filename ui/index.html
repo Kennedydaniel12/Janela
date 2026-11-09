@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+  <title>Janela</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="panel.js" defer></script>
+</head>
+<body>
+  <aside class="rail">
+    <div class="brand"><span aria-hidden="true" class="logo">◫</span> Janela</div>
+    <nav aria-label="Menu principal">
+      <button data-view="overview" aria-current="page">Visão geral</button>
+      <button data-view="rules">Regras</button>
+      <button data-view="settings">Configurações</button>
+    </nav>
+    <small class="local">● Dados neste dispositivo</small>
+  </aside>
+  <main>
+    <header class="toolbar">
+      <p id="status"><span class="dot"></span> Conectando</p>
+      <button id="toggle" disabled>Pausar coleta</button>
+    </header>
+    <p id="error" role="alert" hidden></p>
+    <section id="overview">
+      <div class="hero">
+        <div><p class="eyebrow">SEU TEMPO NO WINDOWS</p><h1>Visão geral</h1><p id="date" class="muted"></p></div>
+        <div class="segmented" aria-label="Período">
+          <button data-period="day" aria-pressed="true">Hoje</button>
+          <button data-period="week" aria-pressed="false">Semana</button>
+        </div>
+      </div>
+      <div id="metrics" class="metrics"></div>
+      <article class="card">
+        <h2>Linha do tempo</h2>
+        <p class="muted legend"><span class="key active"></span> Atividade <span class="key video"></span> Reprodução <span class="key idle"></span> Inatividade</p>
+        <div id="timeline" class="timeline" aria-hidden="true"></div>
+        <div id="intervals"></div>
+        <button id="more" hidden>Mostrar mais intervalos</button>
+      </article>
+      <div class="grid">
+        <article class="card"><h2>Categorias</h2><div id="categories"></div></article>
+        <article class="card"><h2>Projetos</h2><div id="projects"></div></article>
+      </div>
+      <article class="card"><h2>Aplicativos</h2><div id="apps"></div></article>
+    </section>
+    <section id="rules" hidden>
+      <div class="hero"><div><p class="eyebrow">ORGANIZAÇÃO</p><h1>Regras</h1></div><button id="newRule" class="primary">Nova regra</button></div>
+      <article class="card"><p class="muted">Uma regra por título tem prioridade. Deixe o título em branco para aplicar a regra ao aplicativo inteiro.</p><div id="ruleList"></div></article>
+    </section>
+    <section id="settings" hidden>
+      <div class="hero"><div><p class="eyebrow">PREFERÊNCIAS LOCAIS</p><h1>Configurações</h1></div></div>
+      <form id="settingsForm" class="card">
+        <h2>Inatividade</h2>
+        <p class="muted">O tempo após este limite é separado como inatividade. Vídeo detectado na janela em foco mantém a contagem.</p>
+        <label for="seconds">Limite em segundos</label><input id="seconds" type="number" min="5" max="7200" required>
+        <button class="primary">Salvar</button>
+      </form>
+    </section>
+  </main>
+  <dialog id="editor" aria-labelledby="editorTitle">
+    <form id="editForm">
+      <header class="editor-header"><h2 id="editorTitle">Classificar atividade</h2><button type="button" id="closeEditor" aria-label="Fechar painel">×</button></header>
+      <label for="mode">Aplicar a</label>
+      <select id="mode"><option value="correct">Este intervalo</option><option value="saveRule">Atividades futuras (regra)</option></select>
+      <div id="ruleFields">
+        <label for="app">Aplicativo (nome do processo)</label><input id="app" maxlength="160" placeholder="Ex.: code">
+        <label for="fragment">Trecho do título (opcional)</label><input id="fragment" maxlength="160" placeholder="Ex.: nome do projeto">
+      </div>
+      <label for="category">Categoria</label><input id="category" maxlength="160" list="categoryNames" placeholder="Ex.: Trabalho">
+      <datalist id="categoryNames"><option>Trabalho</option><option>Jogos</option><option>Lazer</option></datalist>
+      <label for="project">Projeto</label><input id="project" maxlength="160" list="projectNames" placeholder="Ex.: nome do projeto">
+      <datalist id="projectNames"></datalist>
+      <p id="editError" role="alert" hidden></p>
+      <div class="actions"><button type="button" id="deleteRule" hidden>Excluir regra</button><button class="primary">Salvar</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

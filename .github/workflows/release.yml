@@ -1,0 +1,63 @@
+name: Publicar Janela
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: janela-release-main
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Validar scripts
+        shell: pwsh
+        run: |
+          foreach ($file in @('ui/panel.js', 'extension/worker.js', 'extension/video.js')) {
+            node --check $file
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Compilar instalador
+        shell: pwsh
+        run: ./Build-Installer.ps1 -Version "0.2.${{ github.run_number }}"
+      - name: Testar instalação
+        shell: pwsh
+        env:
+          VERSION: 0.2.${{ github.run_number }}
+        run: |
+          $destination = Join-Path $env:RUNNER_TEMP 'Janela-install'
+          $setup = Start-Process ./dist/Janela-Setup-x64.exe -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-',
+            ('/DIR="' + $destination + '"')
+          ) -Wait -PassThru -WindowStyle Hidden
+          if ($setup.ExitCode -ne 0) { exit $setup.ExitCode }
+          foreach ($file in @('update-enabled', 'ui/index.html', 'extension/manifest.json', 'unins000.exe')) {
+            if (-not (Test-Path (Join-Path $destination $file))) { throw "Arquivo ausente: $file" }
+          }
+          $version = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $destination 'Janela.dll')).Version
+          if ($version.ToString(3) -ne $env:VERSION) { throw "Versão instalada inesperada: $version" }
+      - name: Publicar release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: 0.2.${{ github.run_number }}
+        run: |
+          $head = gh api "repos/$env:GITHUB_REPOSITORY/branches/main" --jq .commit.sha
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($head -ne $env:GITHUB_SHA) { Write-Host 'Uma revisão mais recente já está na main.'; exit 0 }
+          $tag = "v$env:VERSION"
+          gh release create $tag dist/Janela-Setup-x64.exe --target $env:GITHUB_SHA --title "Janela $env:VERSION" --generate-notes --latest
+          exit $LASTEXITCODE
