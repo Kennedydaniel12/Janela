@@ -51,7 +51,7 @@
       </div>
       <article class="card">
         <div class="insight-header">
-          <div><h2>Mapa de horários</h2><p class="muted">Tempo de atividade e reprodução por dia da semana e hora local.</p></div>
+          <div><h2 id="heatmapHeading">Mapa de horários</h2><p class="muted">Tempo de atividade e reprodução por dia da semana e hora local.</p></div>
           <div class="heat-filters">
             <label>Aplicativo ou grupo <select id="heatApp"><option value="">Todos</option></select></label>
             <label>Categoria <select id="heatCategory"><option value="">Todas</option></select></label>
@@ -93,6 +93,35 @@
         <div id="timeline" class="timeline" aria-hidden="true"></div>
         <div id="intervals"></div>
         <button id="more" hidden>Mostrar mais intervalos</button>
+      </article>
+    </section>
+    <section id="details" hidden>
+      <button id="closeDetails" class="back-button" type="button">← Voltar à Visão geral</button>
+      <div class="hero">
+        <div>
+          <p id="detailKind" class="eyebrow"></p>
+          <div class="detail-title"><img id="detailIcon" class="app-icon" alt="" hidden><h1 id="detailTitle" tabindex="-1"></h1></div>
+          <p id="detailPeriod" class="muted"></p>
+        </div>
+        <div class="detail-actions">
+          <button id="detailRule" type="button" hidden>Criar regra</button>
+          <button id="detailHours" class="primary" type="button">Ver no mapa de horários</button>
+        </div>
+      </div>
+      <div id="detailMetrics" class="metrics"></div>
+      <article class="card">
+        <h2 id="detailChartTitle">Uso por dia</h2>
+        <p class="muted legend"><span class="key active"></span> Atividade <span class="key video"></span> Reprodução</p>
+        <div id="detailChart" class="detail-chart"></div>
+      </article>
+      <div class="grid">
+        <article class="card"><h2 id="detailBreakdownTitle"></h2><div id="detailBreakdown"></div></article>
+        <article class="card"><h2>Projetos</h2><div id="detailProjects"></div></article>
+      </div>
+      <article class="card">
+        <h2>Sessões</h2>
+        <div id="detailSessions"></div>
+        <button id="detailMore" type="button" hidden>Mostrar mais sessões</button>
       </article>
     </section>
     <section id="rules" hidden>

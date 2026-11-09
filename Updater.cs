@@ -53,13 +53,33 @@ static class Updater
         Directory.CreateDirectory(DownloadFolder);
         var path = Path.Combine(DownloadFolder, $"Janela-Setup-{version}-{Guid.NewGuid():N}.exe");
         var url = $"https://github.com/{Repository}/releases/download/{Uri.EscapeDataString(tag)}/{Asset}";
+        try
+        {
+            return await Download(url, path, version, size, expected, useAssetApi: false, token);
+        }
+        catch (Exception ex) when (!token.IsCancellationRequested &&
+            (ex is HttpRequestException or HttpIOException or OperationCanceledException) &&
+            asset.TryGetProperty("id", out var id) && id.TryGetInt64(out var assetId) && assetId > 0)
+        {
+            // The release page and the asset API can produce different CDN redirects.
+            var assetUrl = $"https://api.github.com/repos/{Repository}/releases/assets/{assetId}";
+            return await Download(assetUrl, path, version, size, expected, useAssetApi: true, token);
+        }
+    }
+
+    static async Task<UpdatePackage?> Download(string url, string path, Version version, long size,
+        byte[] expected, bool useAssetApi, CancellationToken token)
+    {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromMinutes(3));
         var download = deadline.Token;
         bool verified = false;
         try
         {
-            using var package = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, download);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.UserAgent.ParseAdd("Janela-Updater/1.0");
+            if (useAssetApi) request.Headers.Accept.ParseAdd("application/octet-stream");
+            using var package = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, download);
             package.EnsureSuccessStatusCode();
             await using var source = await package.Content.ReadAsStreamAsync(download);
             await using var target = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true);

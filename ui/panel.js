@@ -9,6 +9,7 @@ const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digi
 const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
 const dateWithYear = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 let period = 'day', view = 'overview', limit = 8, snapshot, selected, pending, settingsDirty;
+let detail, detailLimit = 8, overviewScroll = 0;
 let focusLimit = 8, heatIndex = 0, heatSelected = false;
 let heatRows = [];
 let customRange = {}, retroPreview, previewDraft;
@@ -71,7 +72,7 @@ function groupAppTotals(rows, groups) {
   return [...totals.values()].sort((a, b) => b.amount - a.amount);
 }
 function appTotalRow({ app, appGroup, amount, members }) {
-  if (!appGroup) return listRow(app, duration(amount), () => openEditor({ app }, 'app'), app);
+  if (!appGroup) return listRow(app, duration(amount), () => openDetails('app', app), app);
   const block = make('div', undefined, 'app-group');
   const children = make('div', undefined, 'app-group-members');
   const iconApp = members.find(([name]) => appIcon(name))?.[0] || app;
@@ -89,8 +90,14 @@ function appTotalRow({ app, appGroup, amount, members }) {
   const marker = make('span', undefined, 'group-chevron');
   marker.setAttribute('aria-hidden', 'true');
   button.querySelector('.row-label').append(marker);
-  children.append(...members.map(([name, total]) => listRow(name, duration(total), () => openEditor({ app: name }, 'app'), name)));
-  block.append(button, children);
+  children.append(...members.map(([name, total]) => listRow(name, duration(total), () => openDetails('app', name), name)));
+  const header = make('div', undefined, 'group-detail-row');
+  const details = make('button', 'Detalhes');
+  details.type = 'button';
+  details.setAttribute('aria-label', 'Detalhes de ' + appGroup.name);
+  details.onclick = () => openDetails('group', appGroup.id);
+  header.append(button, details);
+  block.append(header, children);
   syncExpanded();
   return block;
 }
@@ -261,6 +268,91 @@ $('heatApp').onchange = () => render(true);
 $('focusProject').onchange = () => { focusLimit = 8; render(true); };
 $('moreFocus').onclick = () => { focusLimit += 20; render(true); };
 
+function rangeLabel(from, until) {
+  const format = period === 'custom' ? dateWithYear : date;
+  const first = format.format(from), last = format.format(Math.max(from, until - 1));
+  return first === last ? first : first + ' — ' + last;
+}
+
+function openDetails(kind, key) {
+  if (view === 'overview') overviewScroll = window.scrollY;
+  detail = { kind, key };
+  detailLimit = 8;
+  showView('details');
+  $('detailTitle').focus({ preventScroll: true });
+}
+function closeDetails() {
+  showView('overview');
+  window.scrollTo(0, overviewScroll);
+}
+$('closeDetails').onclick = closeDetails;
+$('detailMore').onclick = () => { detailLimit += 20; render(true); };
+$('detailRule').onclick = () => openEditor({ app: detail.key }, 'app');
+$('detailHours').onclick = () => {
+  const { kind, key } = detail;
+  showView('overview');
+  $('heatApp').value = kind === 'category' ? '' : kind + ':' + key;
+  $('heatCategory').value = kind !== 'category' ? '' : 'v:' + (key === 'Sem categoria' ? '' : key);
+  heatSelected = false;
+  $('hourSessions').hidden = true;
+  $('hourDetail').textContent = 'Selecione uma célula para ver o total.';
+  render(true);
+  $('heatmapHeading').scrollIntoView({ block: 'start' });
+};
+
+const chartMonth = new Intl.DateTimeFormat('pt-BR', { month: 'short', year: 'numeric' });
+function renderDetails(rows) {
+  const { groups, from, until } = snapshot;
+  const chosen = detailRows(rows, detail, groups);
+  const sessions = groupSessions(chosen);
+  const appGroup = detail.kind === 'group' ? groups.find(group => group.id === detail.key) : null;
+  const name = appGroup?.name ?? String(detail.key);
+  $('detailTitle').textContent = name;
+  $('detailKind').textContent = { app: 'Aplicativo', group: 'Grupo de aplicativos', category: 'Categoria' }[detail.kind];
+  $('detailPeriod').textContent = rangeLabel(from, until);
+  const icon = detail.kind === 'app' ? appIcon(detail.key) : appGroup?.apps.map(appIcon).find(Boolean);
+  $('detailIcon').hidden = detail.kind === 'category';
+  if (!$('detailIcon').hidden) setAppIcon($('detailIcon'), icon);
+  $('detailRule').hidden = detail.kind !== 'app';
+  const total = chosen.reduce((sum, row) => sum + row.end - row.start, 0);
+  const video = chosen.filter(row => row.state === 'video').reduce((sum, row) => sum + row.end - row.start, 0);
+  $('detailMetrics').replaceChildren(...[['Tempo total', duration(total)],
+    ['Atividade', duration(total - video)], ['Reprodução', duration(video)]].map(([label, value]) => {
+    const card = make('article', undefined, 'card metric');
+    card.append(make('span', label, 'muted'), make('strong', value));
+    return card;
+  }));
+  const { buckets, monthly } = usageBuckets(chosen, from, until);
+  $('detailChartTitle').textContent = monthly ? 'Uso por mês' : 'Uso por dia';
+  const max = Math.max(1, ...buckets.map(bucket => bucket.active + bucket.video));
+  fill('detailChart', buckets.map(bucket => {
+    const bar = make('div', undefined, 'detail-chart-row');
+    const track = make('span', undefined, 'detail-chart-track');
+    for (const state of ['active', 'video']) {
+      const mark = make('span', undefined, state);
+      mark.style.width = bucket[state] / max * 100 + '%';
+      track.append(mark);
+    }
+    track.setAttribute('aria-hidden', 'true');
+    bar.title = 'Atividade: ' + duration(bucket.active) + ' · Reprodução: ' + duration(bucket.video);
+    bar.append(make('span', (monthly ? chartMonth : date).format(bucket.start)), track,
+      make('strong', duration(bucket.active + bucket.video)));
+    return bar;
+  }));
+  const byCategory = detail.kind === 'app';
+  $('detailBreakdownTitle').textContent = byCategory ? 'Categorias' : 'Aplicativos';
+  fill('detailBreakdown', group(chosen, byCategory ? 'category' : 'app', 'Sem categoria').map(([label, amount]) =>
+    listRow(label, duration(amount), () => openDetails(byCategory ? 'category' : 'app', label), byCategory ? null : label)));
+  fill('detailProjects', group(chosen, 'project', 'Sem projeto').map(([label, amount]) => listRow(label, duration(amount))));
+  fill('detailSessions', sessions.slice(-detailLimit).reverse().map(session => {
+    const label = [date.format(session.start), time.format(session.start) + '–' + time.format(session.end),
+      session.app, states[session.state], session.project].filter(Boolean).join(' · ');
+    return listRow(label, duration(session.end - session.start),
+      session.live ? undefined : () => openEditor(session, 'interval'), session.app);
+  }));
+  $('detailMore').hidden = sessions.length <= detailLimit;
+}
+
 function render(force = false) {
   if (!snapshot) return;
   const { paused, seconds, rules, current, update, groups, startup } = snapshot;
@@ -285,6 +377,7 @@ function render(force = false) {
   if (!force && (editor.open || groupEditor.open || document.activeElement?.closest('.row, #more, #moreFocus, .heatmap'))) return;
 
   const rows = current ? [...snapshot.rows, current] : snapshot.rows;
+  if (view === 'details') { renderDetails(rows); return; }
   const sessions = groupSessions(filterTimeline(rows, groups));
   const active = rows.filter(row => row.state !== 'idle');
   renderHeatmap(rows, groups);
@@ -300,10 +393,7 @@ function render(force = false) {
   }));
 
   const start = snapshot.from, end = snapshot.until;
-  const lastDay = Math.max(start, end - 1);
-  const formatter = period === 'custom' ? dateWithYear : date;
-  const firstDate = formatter.format(start), lastDate = formatter.format(lastDay);
-  $('date').textContent = firstDate === lastDate ? firstDate : firstDate + ' — ' + lastDate;
+  $('date').textContent = rangeLabel(start, end);
   const width = Math.max(1, end - start);
   const bar = document.createDocumentFragment();
   for (const row of sessions) {
@@ -319,7 +409,7 @@ function render(force = false) {
   }));
   $('more').hidden = sessions.length <= limit;
   fill('categories', group(active, 'category', 'Sem categoria').map(([label, amount]) =>
-    listRow(label, duration(amount), () => applyTimelineFilter('filterCategory', 'v:' + label))));
+    listRow(label, duration(amount), () => openDetails('category', label))));
   fill('projects', group(active, 'project', 'Sem projeto').map(([label, amount]) =>
     listRow(label, duration(amount), () => applyTimelineFilter('filterProject', 'v:' + label))));
   fill('apps', groupAppTotals(active, groups).map(appTotalRow));
@@ -472,15 +562,20 @@ $('settingsForm').onsubmit = event => {
   settingsDirty = false;
   send('settings', { seconds: Number($('seconds').value) });
 };
+function showView(next) {
+  $(view).hidden = true;
+  view = next;
+  $(view).hidden = false;
+  const nav = next === 'details' ? 'overview' : next;
+  for (const item of document.querySelectorAll('[data-view]')) {
+    if (item.dataset.view === nav) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  }
+  window.scrollTo(0, 0);
+  render(true);
+}
 for (const button of document.querySelectorAll('[data-view]')) {
-  button.onclick = () => {
-    $(view).hidden = true;
-    view = button.dataset.view;
-    $(view).hidden = false;
-    for (const item of document.querySelectorAll('[data-view]')) item.removeAttribute('aria-current');
-    button.setAttribute('aria-current', 'page');
-    render(true);
-  };
+  button.onclick = () => showView(button.dataset.view);
 }
 function setPeriod(value) {
   period = value;

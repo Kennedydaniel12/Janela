@@ -27,6 +27,38 @@ function buildHourMap(rows) {
   return buckets;
 }
 
+function detailRows(rows, detail, groups) {
+  const members = detail.kind === 'group' ? groups.find(group => group.id === detail.key)?.apps ?? [] : [];
+  return rows.filter(row => row.state !== 'idle' && (
+    detail.kind === 'app' ? row.app === detail.key :
+    detail.kind === 'group' ? members.includes(row.app) :
+    (row.category || 'Sem categoria') === detail.key));
+}
+
+function usageBuckets(rows, from, until) {
+  const monthly = until - from > 31 * 86400000;
+  const nextBoundary = at => {
+    const date = new Date(at);
+    if (monthly) return +new Date(date.getFullYear(), date.getMonth() + 1, 1);
+    return +new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+  };
+  const buckets = [];
+  for (let start = from; start < until;) {
+    const end = Math.min(until, nextBoundary(start));
+    buckets.push({ start, end, active: 0, video: 0 });
+    start = end;
+  }
+  let first = 0;
+  for (const row of rows) {
+    while (first < buckets.length && buckets[first].end <= row.start) first++;
+    for (let i = first; i < buckets.length && buckets[i].start < row.end; i++) {
+      const bucket = buckets[i];
+      bucket[row.state] += Math.max(0, Math.min(row.end, bucket.end) - Math.max(row.start, bucket.start));
+    }
+  }
+  return { monthly, buckets };
+}
+
 function focusSessions(rows, tolerance = 120000) {
   const sessions = [];
   for (let i = 0; i < rows.length;) {
