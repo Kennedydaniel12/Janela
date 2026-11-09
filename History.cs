@@ -7,6 +7,7 @@ sealed record Interval(long Id, long Start, long End, string App, string Categor
 sealed record Rule(long Id, string App, string Contains, string Category, string Project);
 sealed record AppGroup(long Id, string Name, List<string> Apps);
 sealed record WeeklyGoal(long Id, string Scope, string Target, string Mode, int Minutes, bool Notify, long NotifiedWeek);
+sealed record GoalTarget(string Scope, string Name);
 
 sealed class Tracker(Action<Activity, long, long> record)
 {
@@ -129,6 +130,22 @@ sealed class History : IDisposable
         while (rows.Read()) goals.Add(new(rows.GetInt64(0), rows.GetString(1), rows.GetString(2), rows.GetString(3),
             rows.GetInt32(4), rows.GetBoolean(5), rows.GetInt64(6)));
         return goals;
+    }
+
+    public List<GoalTarget> GoalTargets()
+    {
+        using var cmd = Command("""
+            SELECT 'category' AS scope, category AS name FROM intervals WHERE category<>''
+            UNION SELECT 'project', project FROM intervals WHERE project<>''
+            UNION SELECT 'category', category FROM rules WHERE category<>''
+            UNION SELECT 'project', project FROM rules WHERE project<>''
+            UNION SELECT scope, target FROM weekly_goals
+            ORDER BY scope, name
+            """);
+        using var rows = cmd.ExecuteReader();
+        List<GoalTarget> targets = [];
+        while (rows.Read()) targets.Add(new(rows.GetString(0), rows.GetString(1)));
+        return targets;
     }
 
     public void SaveWeeklyGoal(long id, string scope, string target, string mode, int minutes, bool notify)

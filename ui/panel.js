@@ -5,7 +5,7 @@ const groupEditor = $('groupEditor');
 const goalEditor = $('goalEditor');
 const expandedGroups = new Set();
 let selectedGroup;
-let weeklyReport, selectedGoal, trayDirty = false;
+let weeklyReport, selectedGoal, knownGoalTargets = [], trayDirty = false;
 const states = { active: 'Atividade', video: 'Reprodução', idle: 'Inatividade' };
 const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
@@ -458,31 +458,54 @@ function renderWeekly() {
   }));
   if (!goals.length) $('goalList').replaceChildren(make('p', 'Nenhuma meta semanal configurada.', 'muted'));
 }
-function goalOptions() {
+function goalOptions(selectedValue = '') {
   const key = $('goalScope').value;
-  const targets = new Set([...weeklyReport.rows, ...(snapshot?.rules ?? [])].map(row => row[key]).filter(Boolean));
-  $('goalTargets').replaceChildren(...[...targets].sort().map(name => new Option(name)));
+  const label = key === 'category' ? 'Categoria' : 'Projeto';
+  $('goalTargetLabel').textContent = label;
+  const targets = new Set(knownGoalTargets.filter(item => item.scope === key).map(item => item.name));
+  const live = weeklyReport.current?.[key];
+  if (live) targets.add(live);
+  if (selectedGoal.scope === key && selectedGoal.target) targets.add(selectedGoal.target);
+  const select = $('goalTarget');
+  select.replaceChildren(new Option('Selecione ' + label.toLowerCase(), ''),
+    ...[...targets].sort((a, b) => a.localeCompare(b, 'pt-BR')).map(name => new Option(name, 'v:' + name)),
+    new Option('Digitar outro nome…', 'other'));
+  select.value = [...select.options].some(option => option.value === selectedValue) ? selectedValue : '';
+  updateGoalTarget();
+}
+function updateGoalTarget() {
+  const custom = $('goalTarget').value === 'other';
+  $('goalCustomTarget').hidden = !custom;
+  $('goalTargetName').required = custom;
 }
 function openGoal(goal = { id: 0, scope: 'category', target: '', mode: 'maximum', minutes: 480, notify: false }) {
   selectedGoal = goal;
   $('goalScope').value = goal.scope;
-  $('goalTarget').value = goal.target;
+  $('goalTargetName').value = '';
   $('goalMode').value = goal.mode;
   $('goalMinutes').value = goal.minutes;
   $('goalNotify').checked = goal.notify;
   $('deleteGoal').hidden = !goal.id;
   $('goalError').hidden = true;
-  goalOptions();
+  $('goalTargetStatus').hidden = true;
+  goalOptions(goal.target ? 'v:' + goal.target : '');
   goalEditor.showModal();
+  send('goalTargets');
 }
 $('newGoal').onclick = () => openGoal();
 $('closeGoal').onclick = () => goalEditor.close();
-$('goalScope').onchange = goalOptions;
+$('goalScope').onchange = () => {
+  $('goalTargetName').value = '';
+  goalOptions();
+};
+$('goalTarget').onchange = updateGoalTarget;
 $('deleteGoal').onclick = () => edit('deleteGoal', { id: selectedGoal.id });
 $('goalForm').onsubmit = event => {
   event.preventDefault();
+  const value = $('goalTarget').value;
+  const target = value === 'other' ? $('goalTargetName').value : value.slice(2);
   edit('saveGoal', {
-    id: selectedGoal.id, scope: $('goalScope').value, target: $('goalTarget').value,
+    id: selectedGoal.id, scope: $('goalScope').value, target,
     mode: $('goalMode').value, minutes: Number($('goalMinutes').value), notify: $('goalNotify').checked
   });
 };
@@ -770,6 +793,18 @@ $('customPeriod').onsubmit = event => {
   setPeriod('custom');
 };
 bridge?.addEventListener('message', ({ data }) => {
+  if (data.action === 'goalTargets') {
+    if (!goalEditor.open) return;
+    if (data.error) {
+      $('goalTargetStatus').textContent = 'Não foi possível carregar a lista. Você pode digitar outro nome.';
+      $('goalTargetStatus').hidden = false;
+    } else {
+      knownGoalTargets = data.targets;
+      goalOptions($('goalTarget').value);
+      $('goalTargetStatus').hidden = true;
+    }
+    return;
+  }
   if (['weeklyReport', 'saveGoal', 'deleteGoal'].includes(data.action)) {
     const completed = pending === data.action;
     if (completed) pending = null;

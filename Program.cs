@@ -309,6 +309,9 @@ sealed class Dashboard : Form
             case "weeklyReport":
                 SendWeeklyReport();
                 return;
+            case "goalTargets":
+                Send(new { action, targets = history.GoalTargets() });
+                return;
             case "saveGoal":
                 history.SaveWeeklyGoal(ReadId(data), Field(data, "scope"), Field(data, "target"),
                     Field(data, "mode"), data.GetProperty("minutes").GetInt32(), data.GetProperty("notify").GetBoolean());

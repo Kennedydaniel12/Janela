@@ -216,9 +216,13 @@
       <header class="editor-header"><h2 id="goalEditorTitle">Meta semanal</h2><button type="button" id="closeGoal" aria-label="Fechar painel">×</button></header>
       <label for="goalScope">Medir tempo de</label>
       <select id="goalScope"><option value="category">Categoria (atividade e reprodução)</option><option value="project">Projeto (atividade)</option></select>
-      <label for="goalTarget">Categoria ou projeto</label>
-      <input id="goalTarget" maxlength="160" list="goalTargets" required placeholder="Ex.: Jogos">
-      <datalist id="goalTargets"></datalist>
+      <label id="goalTargetLabel" for="goalTarget">Categoria</label>
+      <select id="goalTarget" required aria-describedby="goalTargetStatus"></select>
+      <p id="goalTargetStatus" class="muted" role="status" hidden></p>
+      <div id="goalCustomTarget" hidden>
+        <label for="goalTargetName">Nome da categoria ou do projeto</label>
+        <input id="goalTargetName" maxlength="160">
+      </div>
       <label for="goalMode">Tipo de meta</label>
       <select id="goalMode"><option value="minimum">Atingir pelo menos</option><option value="maximum">Ficar abaixo de</option></select>
       <label for="goalMinutes">Duração semanal em minutos</label>
