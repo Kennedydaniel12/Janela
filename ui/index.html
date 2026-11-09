@@ -7,6 +7,7 @@
   <title>Pulso</title>
   <link rel="icon" href="pulso.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
+  <script src="analytics.js" defer></script>
   <script src="panel.js" defer></script>
 </head>
 <body>
@@ -48,6 +49,38 @@
         <article class="card"><h2>Categorias</h2><div id="categories"></div></article>
         <article class="card"><h2>Projetos</h2><div id="projects"></div></article>
       </div>
+      <article class="card">
+        <div class="insight-header">
+          <div><h2>Mapa de horários</h2><p class="muted">Tempo de atividade e reprodução por dia da semana e hora local.</p></div>
+          <div class="heat-filters">
+            <label>Aplicativo ou grupo <select id="heatApp"><option value="">Todos</option></select></label>
+            <label>Categoria <select id="heatCategory"><option value="">Todas</option></select></label>
+          </div>
+        </div>
+        <div class="heatmap">
+          <table aria-label="Tempo por dia da semana e hora">
+            <thead id="heatHours"></thead><tbody id="heatDays"></tbody>
+          </table>
+        </div>
+        <p class="heat-legend muted" aria-label="Intensidade por célula">
+          <span><i data-level="0"></i> 0</span>
+          <span><i data-level="1"></i> até 15</span>
+          <span><i data-level="2"></i> até 30</span>
+          <span><i data-level="3"></i> até 45</span>
+          <span><i data-level="4"></i> mais de 45 min</span>
+        </p>
+        <p id="hourDetail" class="muted" aria-live="polite">Selecione uma célula para ver o total. Use Semana para ver mais dias.</p>
+        <div id="hourSessions" class="hour-sessions" hidden></div>
+      </article>
+      <article class="card">
+        <div class="insight-header">
+          <div><h2>Sessões de foco</h2><p class="muted">Trocas breves de até 2 min mantêm a sessão se você voltar ao mesmo projeto.</p></div>
+          <label>Projeto <select id="focusProject"><option value="">Todos</option></select></label>
+        </div>
+        <p id="focusSummary" class="muted"></p>
+        <div id="focusSessions"></div>
+        <button id="moreFocus" type="button" hidden>Mostrar mais sessões</button>
+      </article>
       <article class="card">
         <h2 id="timelineHeading">Linha do tempo</h2>
         <div class="timeline-filters">

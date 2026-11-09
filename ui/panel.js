@@ -9,8 +9,11 @@ const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digi
 const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
 const dateWithYear = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 let period = 'day', view = 'overview', limit = 8, snapshot, selected, pending, settingsDirty;
+let focusLimit = 8, heatIndex = 0, heatSelected = false;
+let heatRows = [];
 let customRange = {}, retroPreview, previewDraft;
 const filterIds = ['filterApp', 'filterCategory', 'filterProject'];
+const exactTime = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 function rangeKey() { return period === 'custom' ? customRange.start + '/' + customRange.end : period; }
 function send(action, fields = {}) { bridge?.postMessage({ action, period, rangeKey: rangeKey(), ...customRange, ...fields }); }
 function make(tag, text, className) {
@@ -115,11 +118,14 @@ function filterOptions(id, all, options) {
   select.replaceChildren(new Option(all, ''), ...options.map(([value, label]) => new Option(label, value)));
   select.value = options.some(([value]) => value === previous) ? previous : '';
 }
-function filterTimeline(rows, groups) {
-  filterOptions('filterApp', 'Todos', [
+function appFilterOptions(rows, groups) {
+  return [
     ...groups.map(group => ['group:' + group.id, group.name + ' (grupo)']),
     ...group(rows.filter(row => row.app), 'app', '').map(([app]) => ['app:' + app, app])
-  ]);
+  ];
+}
+function filterTimeline(rows, groups) {
+  filterOptions('filterApp', 'Todos', appFilterOptions(rows, groups));
   const active = rows.filter(row => row.state !== 'idle');
   filterOptions('filterCategory', 'Todas', group(active, 'category', 'Sem categoria').map(([name]) => ['v:' + name, name]));
   filterOptions('filterProject', 'Todos', group(active, 'project', 'Sem projeto').map(([name]) => ['v:' + name, name]));
@@ -137,6 +143,124 @@ function applyTimelineFilter(id, value) {
   render(true);
   $('timelineHeading').scrollIntoView({ block: 'start' });
 }
+const weekdays = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+const hourLabel = hour => String(hour).padStart(2, '0') + 'h';
+const heatHeader = make('tr');
+heatHeader.append(make('th', 'Dia'));
+for (let hour = 0; hour < 24; hour++) {
+  const column = make('th', hour % 3 === 0 ? hourLabel(hour) : '');
+  column.scope = 'col';
+  column.setAttribute('aria-label', hourLabel(hour));
+  heatHeader.append(column);
+}
+$('heatHours').append(heatHeader);
+
+function renderHourSessions(button) {
+  if ($('hourDetail').textContent !== button.title) $('hourDetail').textContent = button.title;
+  const details = [];
+  for (const session of groupSessions(heatRows)) {
+    visitLocalHours(session, (cell, start, end) => {
+      if (cell === heatIndex) details.push({ session, start, end });
+    });
+  }
+  const entries = details.slice(-30).reverse().map(({ session, start, end }) => {
+    const day = (period === 'custom' ? dateWithYear : date).format(start);
+    const label = [day, exactTime.format(start) + '–' + exactTime.format(end),
+      session.app, session.category || 'Sem categoria'].join(' · ');
+    return listRow(label, duration(end - start), undefined, session.app);
+  });
+  if (details.length > 30) entries.unshift(make('p', 'Mostrando os 30 registros mais recentes desta faixa.', 'muted'));
+  if (!entries.length) entries.push(make('p', 'Nenhum uso registrado nesta faixa com os filtros atuais.', 'muted'));
+  $('hourSessions').replaceChildren(...entries);
+  $('hourSessions').hidden = false;
+}
+function selectHeatCell(button, moveFocus = false) {
+  const previous = $('heatDays').querySelector('button[tabindex="0"]');
+  if (previous) {
+    previous.tabIndex = -1;
+    previous.setAttribute('aria-pressed', 'false');
+  }
+  heatIndex = Number(button.dataset.cell);
+  heatSelected = true;
+  button.tabIndex = 0;
+  button.setAttribute('aria-pressed', 'true');
+  renderHourSessions(button);
+  if (moveFocus) button.focus();
+}
+$('heatDays').onclick = event => {
+  const button = event.target.closest('button[data-cell]');
+  if (button) selectHeatCell(button);
+};
+$('heatDays').onkeydown = event => {
+  const button = event.target.closest('button[data-cell]');
+  if (!button) return;
+  const cell = Number(button.dataset.cell);
+  const offset = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -24, ArrowDown: 24 }[event.key];
+  if (offset === undefined) return;
+  event.preventDefault();
+  const next = $('heatDays').querySelector('button[data-cell="' + (cell + offset) + '"]');
+  if (next) selectHeatCell(next, true);
+};
+
+function renderHeatmap(rows, groups) {
+  filterOptions('heatApp', 'Todos', appFilterOptions(rows, groups));
+  filterOptions('heatCategory', 'Todas',
+    [...new Set(rows.filter(row => row.state !== 'idle').map(row => row.category))].sort()
+      .map(category => ['v:' + category, category || 'Sem categoria']));
+  heatRows = heatmapRows(rows, $('heatApp').value, $('heatCategory').value, groups);
+  const buckets = buildHourMap(heatRows);
+  $('heatDays').replaceChildren(...buckets.map((hours, day) => {
+    const row = make('tr');
+    const label = make('th', weekdays[day].slice(0, 3));
+    label.scope = 'row';
+    label.title = weekdays[day];
+    row.append(label);
+    hours.forEach((amount, hour) => {
+      const index = day * 24 + hour;
+      const button = make('button');
+      button.type = 'button';
+      button.dataset.cell = index;
+      button.dataset.level = Math.min(4, Math.ceil(amount / 900000));
+      button.title = weekdays[day] + ', ' + hourLabel(hour) + '–' + hourLabel(hour + 1) + ' · ' + duration(amount);
+      button.setAttribute('aria-label', button.title);
+      button.setAttribute('aria-pressed', String(heatSelected && heatIndex === index));
+      button.tabIndex = heatIndex === index ? 0 : -1;
+      const cell = make('td');
+      cell.append(button);
+      row.append(cell);
+    });
+    return row;
+  }));
+  if (heatSelected) renderHourSessions($('heatDays').querySelector('button[aria-pressed="true"]'));
+}
+
+function renderFocus(rows) {
+  const sessions = focusSessions(rows);
+  filterOptions('focusProject', 'Todos', [...new Set(sessions.map(session => session.project))].sort()
+    .map(project => ['v:' + project, project]));
+  const filter = $('focusProject').value;
+  const visible = sessions.filter(session => !filter || filter === 'v:' + session.project);
+  const total = visible.reduce((sum, session) => sum + session.focused, 0);
+  const longest = visible.reduce((best, session) => Math.max(best, session.focused), 0);
+  $('focusSummary').textContent = visible.length
+    ? visible.length + (visible.length === 1 ? ' sessão' : ' sessões') + ' · ' + duration(total) +
+      ' em foco · maior sessão: ' + duration(longest)
+    : 'Classifique suas atividades por projeto para ver as sessões de foco.';
+  $('focusSessions').replaceChildren(...visible.slice(-focusLimit).reverse().map(session => {
+    const detail = [date.format(session.start), time.format(session.start) + '–' + time.format(session.end)];
+    if (session.interruptions) detail.push(session.interruptions + (session.interruptions === 1 ? ' troca breve' : ' trocas breves'),
+      duration(session.interruptionTime) + ' fora do projeto');
+    const row = listRow(session.project + ' · ' + detail.join(' · '), duration(session.focused),
+      () => applyTimelineFilter('filterProject', 'v:' + session.project));
+    return row;
+  }));
+  $('moreFocus').hidden = visible.length <= focusLimit;
+}
+$('heatCategory').onchange = () => render(true);
+$('heatApp').onchange = () => render(true);
+$('focusProject').onchange = () => { focusLimit = 8; render(true); };
+$('moreFocus').onclick = () => { focusLimit += 20; render(true); };
+
 function render(force = false) {
   if (!snapshot) return;
   const { paused, seconds, rules, current, update, groups, startup } = snapshot;
@@ -158,11 +282,13 @@ function render(force = false) {
   $('toggle').textContent = paused ? 'Retomar coleta' : 'Pausar coleta';
   $('status').replaceChildren(make('span', '', paused ? 'dot off' : 'dot'), paused ? 'Coleta pausada' : 'Coleta ativa');
   if (!settingsDirty && document.activeElement !== $('seconds')) $('seconds').value = seconds;
-  if (!force && (editor.open || groupEditor.open || document.activeElement?.closest('.row, #more'))) return;
+  if (!force && (editor.open || groupEditor.open || document.activeElement?.closest('.row, #more, #moreFocus, .heatmap'))) return;
 
   const rows = current ? [...snapshot.rows, current] : snapshot.rows;
   const sessions = groupSessions(filterTimeline(rows, groups));
   const active = rows.filter(row => row.state !== 'idle');
+  renderHeatmap(rows, groups);
+  renderFocus(rows);
   const totals = { active: 0, video: 0, idle: 0 };
   for (const row of rows) totals[row.state] += row.end - row.start;
   $('comparison').textContent = 'Tempo em uso (atividade + reprodução): ' + duration(totals.active + totals.video) +
@@ -359,6 +485,7 @@ for (const button of document.querySelectorAll('[data-view]')) {
 function setPeriod(value) {
   period = value;
   limit = 8;
+  focusLimit = 8;
   for (const item of document.querySelectorAll('[data-period]')) {
     item.setAttribute('aria-pressed', String(item.dataset.period === value));
   }

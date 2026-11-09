@@ -53,6 +53,30 @@ button.row { padding-inline: 5px; }
 .row strong { white-space: nowrap; font-size: 13px; }
 .row-label { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .app-icon { width: 22px; height: 22px; flex: 0 0 auto; object-fit: contain; }
+.insight-header { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.insight-header h2, .insight-header p, .insight-header label { margin-top: 0; }
+.insight-header label { min-width: 140px; }
+.heat-filters { display: flex; flex-wrap: wrap; gap: 10px; }
+.heat-filters label { flex: 1 1 140px; }
+.hour-sessions { margin-top: 8px; max-height: 220px; overflow: auto; }
+.heatmap { overflow-x: auto; padding: 3px; }
+.heatmap table { width: 100%; min-width: 625px; table-layout: fixed; border-spacing: 3px; }
+.heatmap th { font-size: 11px; font-weight: 600; color: var(--muted); text-align: center; }
+.heatmap th:first-child { width: 33px; text-align: left; }
+.heatmap td { padding: 0; }
+.heatmap button { display: block; width: 100%; min-height: 20px; border: 0; padding: 0; border-radius: 4px; }
+.heatmap button:hover { outline: 1px solid var(--accent); }
+.heatmap button[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.heatmap [data-level="0"], .heat-legend [data-level="0"] { background: var(--bg); }
+.heatmap [data-level="1"], .heat-legend [data-level="1"] { background: color-mix(in srgb, var(--accent) 24%, var(--surface)); }
+.heatmap [data-level="2"], .heat-legend [data-level="2"] { background: color-mix(in srgb, var(--accent) 48%, var(--surface)); }
+.heatmap [data-level="3"], .heat-legend [data-level="3"] { background: color-mix(in srgb, var(--accent) 72%, var(--surface)); }
+.heatmap [data-level="4"], .heat-legend [data-level="4"] { background: var(--accent); }
+.heat-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; }
+.heat-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.heat-legend i { width: 12px; height: 12px; border-radius: 3px; }
+#hourDetail { min-height: 1.5em; margin-bottom: 0; }
+#moreFocus { margin-top: 10px; }
 .app-group-members { padding-inline-start: 20px; }
 .group-chevron { color: var(--muted); }
 .group-fieldset { border: 0; padding: 0; margin: 18px 0 0; min-width: 0; }
