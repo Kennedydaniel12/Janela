@@ -31,13 +31,18 @@ static class Program
             return;
         }
 
+        using var openPanel = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\Janela.OpenPanel");
         using var instance = new Mutex(true, "Local\\Janela.Tracker", out var first);
-        if (!first) return;
+        if (!first)
+        {
+            if (!args.Contains("--background")) openPanel.Set();
+            return;
+        }
         ApplicationConfiguration.Initialize();
         Directory.CreateDirectory(DataPath);
         SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_winsqlite3());
         using var store = new History(Path.Combine(DataPath, "history.sqlite"));
-        using var window = new Dashboard(store);
+        using var window = new Dashboard(store, openPanel);
         if (args.Contains("--background")) window.Shown += (_, _) => window.Hide();
         Application.Run(window);
     }
@@ -62,7 +67,7 @@ sealed class Dashboard : Form
     bool checkingUpdate, checkedUpdate;
     string? updateError;
 
-    public Dashboard(History history)
+    public Dashboard(History history, EventWaitHandle openPanel)
     {
         this.history = history;
         tracker = new Tracker(history.Record);
@@ -89,7 +94,11 @@ sealed class Dashboard : Form
         SystemEvents.SessionEnding += SessionEnding;
         _ = browser.Listen(stop.Token);
         _ = media.Initialize();
-        timer.Tick += (_, _) => Sample();
+        timer.Tick += (_, _) =>
+        {
+            if (openPanel.WaitOne(0)) Open();
+            Sample();
+        };
         timer.Start();
     }
 
@@ -259,7 +268,8 @@ sealed class Dashboard : Form
                 break;
             case "deleteRule": history.DeleteRule(ReadId(data)); break;
             case "correct":
-                history.Correct(ReadId(data), Field(data, "category"), Field(data, "project"));
+                var ids = data.GetProperty("ids").EnumerateArray().Select(id => id.GetInt64()).ToArray();
+                history.Correct(ids, Field(data, "category"), Field(data, "project"));
                 break;
             case "refresh": break;
             default: return;

@@ -31,6 +31,21 @@ function group(rows, key, fallback) {
   }
   return [...totals].sort((a, b) => b[1] - a[1]);
 }
+function groupSessions(rows) {
+  const sessions = [];
+  for (const row of rows) {
+    const previous = sessions.at(-1);
+    if (previous && previous.end === row.start && previous.app === row.app &&
+        previous.category === row.category && previous.project === row.project && previous.state === row.state) {
+      previous.end = row.end;
+      if (row.id) previous.ids.push(row.id);
+      else previous.live = true;
+    } else {
+      sessions.push({ ...row, ids: row.id ? [row.id] : [], live: !row.id });
+    }
+  }
+  return sessions;
+}
 function fill(id, children) {
   $(id).replaceChildren(...(children.length ? children : [make('p', 'Ainda sem registros neste período.', 'muted')]));
 }
@@ -55,6 +70,7 @@ function render(force = false) {
   if (!force && (editor.open || document.activeElement?.closest('.row, #more'))) return;
 
   const rows = current ? [...snapshot.rows, current] : snapshot.rows;
+  const sessions = groupSessions(rows);
   const active = rows.filter(row => row.state !== 'idle');
   const totals = { active: 0, video: 0, idle: 0 };
   for (const row of rows) totals[row.state] += row.end - row.start;
@@ -70,18 +86,18 @@ function render(force = false) {
   $('date').textContent = period === 'week' ? date.format(start) + ' — ' + date.format(end) : date.format(end);
   const width = Math.max(1, end - start);
   const bar = document.createDocumentFragment();
-  for (const row of rows) {
+  for (const row of sessions) {
     const mark = make('span', undefined, row.state);
     mark.style.left = Math.max(0, (row.start - +start) / width * 100) + '%';
     mark.style.width = (row.end - row.start) / width * 100 + '%';
     bar.append(mark);
   }
   $('timeline').replaceChildren(bar);
-  fill('intervals', rows.slice(-limit).reverse().map(row => {
+  fill('intervals', sessions.slice(-limit).reverse().map(row => {
     const label = [date.format(row.start), time.format(row.start), states[row.state], row.app, row.project].filter(Boolean).join(' · ');
-    return listRow(label, duration(row.end - row.start), row.id && row.app ? () => openEditor(row, 'interval') : undefined);
+    return listRow(label, duration(row.end - row.start), !row.live && row.app ? () => openEditor(row, 'interval') : undefined);
   }));
-  $('more').hidden = rows.length <= limit;
+  $('more').hidden = sessions.length <= limit;
   fill('categories', group(active, 'category', 'Sem categoria').map(([label, amount]) => listRow(label, duration(amount))));
   fill('projects', group(active, 'project', 'Sem projeto').map(([label, amount]) => listRow(label, duration(amount))));
   fill('apps', group(active, 'app', '').map(([app, amount]) => listRow(app, duration(amount), () => openEditor({ app }, 'app'))));
@@ -91,7 +107,7 @@ function render(force = false) {
 function openEditor(row, type) {
   if (!snapshot) return;
   selected = { row, type };
-  $('editorTitle').textContent = type === 'interval' ? 'Classificar intervalo' : 'Regra de classificação';
+  $('editorTitle').textContent = type === 'interval' ? 'Classificar sessão' : 'Regra de classificação';
   $('mode').value = type === 'interval' ? 'correct' : 'saveRule';
   $('mode').options[0].disabled = type !== 'interval';
   $('app').value = row.app ?? '';
@@ -139,7 +155,7 @@ $('editForm').onsubmit = event => {
   const { row, type } = selected;
   const action = $('mode').value;
   edit(action, {
-    id: action === 'correct' || type === 'rule' ? row.id : 0,
+    id: type === 'rule' ? row.id : 0, ids: action === 'correct' ? row.ids : [],
     app: $('app').value, contains: $('fragment').value,
     category: $('category').value, project: $('project').value
   });

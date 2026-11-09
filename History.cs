@@ -153,11 +153,18 @@ sealed class History : IDisposable
         Reload();
     }
 
-    public void Correct(long id, string category, string project)
+    public void Correct(IReadOnlyList<long> ids, string category, string project)
     {
+        using var transaction = db.BeginTransaction();
         using var cmd = Command("UPDATE intervals SET category=$c,project=$p WHERE id=$id AND state!='idle'",
-            ("$id", id), ("$c", category), ("$p", project));
-        cmd.ExecuteNonQuery();
+            ("$id", 0L), ("$c", category), ("$p", project));
+        cmd.Transaction = transaction;
+        foreach (var id in ids)
+        {
+            cmd.Parameters["$id"].Value = id;
+            cmd.ExecuteNonQuery();
+        }
+        transaction.Commit();
     }
 
     public void Record(Activity activity, long start, long end)
