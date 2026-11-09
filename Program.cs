@@ -73,12 +73,12 @@ sealed class Dashboard : Form
         tracker = new Tracker(history.Record);
         seconds = history.IdleSeconds;
         paused = history.Paused;
-        Text = "Janela";
+        Text = "Pulso";
         Width = 1150;
         Height = 790;
         MinimumSize = new Size(520, 450);
         StartPosition = FormStartPosition.CenterScreen;
-        Icon = SystemIcons.Application;
+        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         Controls.Add(web);
         var menu = new ContextMenuStrip();
         menu.Items.Add("Abrir painel", null, (_, _) => Open());
@@ -103,7 +103,7 @@ sealed class Dashboard : Form
     }
 
     void Open() { Show(); WindowState = FormWindowState.Normal; Activate(); }
-    void UpdateTray() => tray.Text = paused ? "Janela · Pausado" : "Janela · Monitorando";
+    void UpdateTray() => tray.Text = paused ? "Pulso · Pausado" : "Pulso · Monitorando";
     void Toggle()
     {
         history.Paused = !paused;
@@ -241,7 +241,7 @@ sealed class Dashboard : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Não foi possível abrir o painel. Verifique o runtime do WebView2.\n{ex.Message}", "Janela");
+            MessageBox.Show(this, $"Não foi possível abrir o painel. Verifique o runtime do WebView2.\n{ex.Message}", "Pulso");
         }
     }
 

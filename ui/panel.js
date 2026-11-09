@@ -60,7 +60,7 @@ function render(force = false) {
     : update.checking ? 'Verificando e baixando atualizações…'
     : !update.enabled ? 'As atualizações automáticas estão disponíveis na versão instalada pelo assistente.'
     : update.checkedUpdate ? 'Nenhuma atualização pronta para instalar.'
-    : 'O Janela verifica atualizações automaticamente.');
+    : 'O Pulso verifica atualizações automaticamente.');
   if ($('updateStatus').textContent !== updateStatus) $('updateStatus').textContent = updateStatus;
   $('newRule').disabled = false;
   $('toggle').disabled = false;
@@ -221,5 +221,5 @@ if (bridge) {
   send('refresh');
   setInterval(() => { if (!pending && !document.hidden) send('refresh'); }, 2500);
 } else {
-  $('status').textContent = 'Abra este painel pelo aplicativo Janela';
+  $('status').textContent = 'Abra este painel pelo aplicativo Pulso';
 }

@@ -4,10 +4,10 @@
 
 [Setup]
 AppId={{628E2102-C9EA-43EF-BC38-FD069314785E}
-AppName=Janela
+AppName=Pulso
 AppVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\Janela
-DefaultGroupName=Janela
+DefaultGroupName=Pulso
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -18,7 +18,8 @@ OutputBaseFilename=Janela-Setup-x64
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-UninstallDisplayIcon={app}\Janela.exe
+SetupIconFile=Pulso.ico
+UninstallDisplayIcon={app}\Pulso.ico
 CloseApplications=yes
 
 [Languages]
@@ -34,17 +35,34 @@ Source: "..\Register-Extension.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "update-enabled"; DestDir: "{app}"; Flags: ignoreversion
+Source: "Pulso.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\Janela"; Filename: "{app}\Janela.exe"
-Name: "{autodesktop}\Janela"; Filename: "{app}\Janela.exe"; Tasks: desktopicon
+Name: "{autoprograms}\Pulso"; Filename: "{app}\Janela.exe"; IconFilename: "{app}\Pulso.ico"
+Name: "{autodesktop}\Pulso"; Filename: "{app}\Janela.exe"; IconFilename: "{app}\Pulso.ico"; Check: ShouldCreateDesktopIcon
 
 [Run]
-Filename: "{app}\Janela.exe"; Description: "{cm:LaunchProgram,Janela}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Janela.exe"; Description: "{cm:LaunchProgram,Pulso}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
   RestartAfterUpdate: Boolean;
+
+function ShouldCreateDesktopIcon(): Boolean;
+begin
+  Result := WizardIsTaskSelected('desktopicon') or FileExists(ExpandConstant('{autodesktop}\Janela.lnk'));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+  begin
+    if FileExists(ExpandConstant('{autodesktop}\Pulso.lnk')) then
+      DeleteFile(ExpandConstant('{autodesktop}\Janela.lnk'));
+    if FileExists(ExpandConstant('{autoprograms}\Pulso.lnk')) then
+      DeleteFile(ExpandConstant('{autoprograms}\Janela.lnk'));
+  end;
+end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -54,7 +72,7 @@ begin
   if ExpandConstant('{param:JanelaUpdate|0}') <> '1' then
   begin
     if CheckForMutexes('Local\Janela.Tracker') then
-      Result := 'Feche o Janela pelo menu da bandeja e tente novamente.';
+      Result := 'Feche o Pulso pelo menu da bandeja e tente novamente.';
     exit;
   end;
   for Attempt := 1 to 100 do
@@ -66,7 +84,7 @@ begin
     end;
     Sleep(100);
   end;
-  Result := 'O Janela ainda está aberto. A atualização será tentada novamente.';
+  Result := 'O Pulso ainda está aberto. A atualização será tentada novamente.';
 end;
 
 procedure DeinitializeSetup();

@@ -44,7 +44,7 @@ jobs:
             ('/DIR="' + $destination + '"')
           ) -Wait -PassThru -WindowStyle Hidden
           if ($setup.ExitCode -ne 0) { exit $setup.ExitCode }
-          foreach ($file in @('update-enabled', 'ui/index.html', 'extension/manifest.json', 'unins000.exe')) {
+          foreach ($file in @('update-enabled', 'ui/index.html', 'ui/pulso.svg', 'Pulso.ico', 'extension/manifest.json', 'unins000.exe')) {
             if (-not (Test-Path (Join-Path $destination $file))) { throw "Arquivo ausente: $file" }
           }
           $version = [Reflection.AssemblyName]::GetAssemblyName((Join-Path $destination 'Janela.dll')).Version

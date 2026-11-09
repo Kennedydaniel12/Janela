@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Janela — Detecção de vídeo",
-  "description": "Informa ao Janela quando um vídeo está avançando na aba em foco.",
+  "name": "Pulso — Detecção de vídeo",
+  "description": "Informa ao Pulso quando um vídeo está avançando na aba em foco.",
   "version": "0.1.0",
   "permissions": ["nativeMessaging"],
   "background": { "service_worker": "worker.js" },

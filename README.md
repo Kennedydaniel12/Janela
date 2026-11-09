@@ -1,4 +1,4 @@
-# Janela
+# Pulso
 
 Rastreador de tempo open source para Windows 11. A visão de hoje e da semana separa uso por aplicativo, categoria e projeto, com uma linha do tempo de atividade, reprodução e inatividade.
 
@@ -10,7 +10,7 @@ Na máquina de compilação, instale o SDK .NET 10 e o Inno Setup 6.3 ou posteri
 .\Build-Installer.ps1
 ```
 
-O resultado fica em `dist\Janela-Setup-x64.exe`. O instalador configura o Janela para o usuário atual e cria um atalho no menu Iniciar. Inclui o runtime .NET e usa o runtime Evergreen do WebView2 do Windows. O histórico em `%LOCALAPPDATA%\Janela` é preservado ao desinstalar.
+O resultado fica em `dist\Janela-Setup-x64.exe`. O instalador configura o Pulso para o usuário atual e cria um atalho no menu Iniciar. Inclui o runtime .NET e usa o runtime Evergreen do WebView2 do Windows. O histórico em `%LOCALAPPDATA%\Janela` é preservado ao desinstalar.
 
 Para detectar vídeos, carregue a extensão da subpasta `extension` que o instalador incluiu e siga os passos abaixo. Ao registrar a ponte, use o caminho do executável instalado, por padrão `%LOCALAPPDATA%\Programs\Janela\Janela.exe`.
 
@@ -27,7 +27,7 @@ Mantenha a pasta de publicação junta. Fechar o painel recolhe o aplicativo par
 
 ## Atualizações automáticas
 
-O Janela instalado consulta o GitHub ao iniciar e a cada seis horas. Quando há uma versão nova, baixa o instalador, confere tamanho e SHA-256 publicados pelo GitHub e aplica a atualização quando você não está interagindo com o painel. O aplicativo reabre na bandeja e preserva o histórico. A versão portátil não consulta atualizações.
+O Pulso instalado consulta o GitHub ao iniciar e a cada seis horas. Quando há uma versão nova, baixa o instalador, confere tamanho e SHA-256 publicados pelo GitHub e aplica a atualização quando você não está interagindo com o painel. O aplicativo reabre na bandeja e preserva o histórico. A versão portátil não consulta atualizações.
 
 Cada push na `main` dispara o fluxo de publicação. O GitHub Releases é a fonte das atualizações. O instalador ainda não tem assinatura Authenticode.
 
