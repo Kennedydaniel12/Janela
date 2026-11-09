@@ -1,6 +1,9 @@
 const $ = id => document.getElementById(id);
 const bridge = window.chrome?.webview;
 const editor = $('editor');
+const groupEditor = $('groupEditor');
+const expandedGroups = new Set();
+let selectedGroup;
 const states = { active: 'Atividade', video: 'Reprodução', idle: 'Inatividade' };
 const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
@@ -47,6 +50,43 @@ function group(rows, key, fallback) {
   }
   return [...totals].sort((a, b) => b[1] - a[1]);
 }
+function groupAppTotals(rows, groups) {
+  const membership = new Map(groups.flatMap(group => group.apps.map(app => [app, group])));
+  const totals = new Map();
+  for (const [app, amount] of group(rows, 'app', '')) {
+    const appGroup = membership.get(app);
+    const key = appGroup ? 'group:' + appGroup.id : 'app:' + app;
+    if (!totals.has(key)) totals.set(key, { app, appGroup, amount: 0, members: [] });
+    const entry = totals.get(key);
+    entry.amount += amount;
+    entry.members.push([app, amount]);
+  }
+  return [...totals.values()].sort((a, b) => b.amount - a.amount);
+}
+function appTotalRow({ app, appGroup, amount, members }) {
+  if (!appGroup) return listRow(app, duration(amount), () => openEditor({ app }, 'app'), app);
+  const block = make('div', undefined, 'app-group');
+  const children = make('div', undefined, 'app-group-members');
+  const iconApp = members.find(([name]) => appIcon(name))?.[0] || app;
+  const button = listRow(appGroup.name, duration(amount), () => {
+    if (expandedGroups.has(appGroup.id)) expandedGroups.delete(appGroup.id);
+    else expandedGroups.add(appGroup.id);
+    syncExpanded();
+  }, iconApp);
+  function syncExpanded() {
+    const expanded = expandedGroups.has(appGroup.id);
+    children.hidden = !expanded;
+    button.setAttribute('aria-expanded', String(expanded));
+    marker.textContent = expanded ? '▾' : '▸';
+  }
+  const marker = make('span', undefined, 'group-chevron');
+  marker.setAttribute('aria-hidden', 'true');
+  button.querySelector('.row-label').append(marker);
+  children.append(...members.map(([name, total]) => listRow(name, duration(total), () => openEditor({ app: name }, 'app'), name)));
+  block.append(button, children);
+  syncExpanded();
+  return block;
+}
 function groupSessions(rows) {
   const sessions = [];
   for (const row of rows) {
@@ -67,7 +107,7 @@ function fill(id, children) {
 }
 function render(force = false) {
   if (!snapshot) return;
-  const { paused, seconds, rules, current, update } = snapshot;
+  const { paused, seconds, rules, current, update, groups } = snapshot;
   $('installedVersion').textContent = update.version;
   $('checkUpdate').hidden = !update.enabled || Boolean(update.available);
   $('checkUpdate').disabled = update.checking;
@@ -79,11 +119,12 @@ function render(force = false) {
     : 'O Pulso verifica atualizações automaticamente.');
   if ($('updateStatus').textContent !== updateStatus) $('updateStatus').textContent = updateStatus;
   $('newRule').disabled = false;
+  $('newGroup').disabled = false;
   $('toggle').disabled = false;
   $('toggle').textContent = paused ? 'Retomar coleta' : 'Pausar coleta';
   $('status').replaceChildren(make('span', '', paused ? 'dot off' : 'dot'), paused ? 'Coleta pausada' : 'Coleta ativa');
   if (!settingsDirty && document.activeElement !== $('seconds')) $('seconds').value = seconds;
-  if (!force && (editor.open || document.activeElement?.closest('.row, #more'))) return;
+  if (!force && (editor.open || groupEditor.open || document.activeElement?.closest('.row, #more'))) return;
 
   const rows = current ? [...snapshot.rows, current] : snapshot.rows;
   const sessions = groupSessions(rows);
@@ -116,10 +157,51 @@ function render(force = false) {
   $('more').hidden = sessions.length <= limit;
   fill('categories', group(active, 'category', 'Sem categoria').map(([label, amount]) => listRow(label, duration(amount))));
   fill('projects', group(active, 'project', 'Sem projeto').map(([label, amount]) => listRow(label, duration(amount))));
-  fill('apps', group(active, 'app', '').map(([app, amount]) => listRow(app, duration(amount), () => openEditor({ app }, 'app'), app)));
+  fill('apps', groupAppTotals(active, groups).map(appTotalRow));
+  fill('groupList', groups.map(group => listRow(group.name, group.apps.length + ' app(s)', () => openGroup(group),
+    group.apps.find(app => appIcon(app)) || group.apps[0])));
   fill('ruleList', rules.map(rule => listRow(
     [rule.app, rule.contains, rule.category, rule.project].filter(Boolean).join(' · '), 'Editar', () => openEditor(rule, 'rule'), rule.app)));
 }
+function openGroup(group = { id: 0, name: '', apps: [] }) {
+  selectedGroup = group;
+  $('groupName').value = group.name;
+  $('groupMembers').replaceChildren();
+  $('groupAppsStatus').textContent = 'Buscando aplicativos…';
+  $('groupError').hidden = true;
+  $('deleteGroup').hidden = !group.id;
+  $('saveGroup').disabled = true;
+  groupEditor.showModal();
+  send('groupApps');
+}
+function showGroupApps(apps) {
+  const otherGroups = new Map(snapshot.groups.filter(group => group.id !== selectedGroup.id)
+    .flatMap(group => group.apps.map(app => [app, group.name])));
+  $('groupMembers').replaceChildren(...apps.map(({ app, icon }) => {
+    const label = make('label', undefined, 'group-choice');
+    const checkbox = make('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = app;
+    checkbox.checked = selectedGroup.apps.includes(app);
+    checkbox.disabled = otherGroups.has(app);
+    const image = make('img', undefined, 'app-icon');
+    image.alt = '';
+    setAppIcon(image, icon);
+    const title = otherGroups.has(app) ? app + ' · ' + otherGroups.get(app) : app;
+    label.append(checkbox, image, make('span', title));
+    return label;
+  }));
+  $('saveGroup').disabled = !apps.length;
+  $('groupAppsStatus').textContent = apps.length ? '' : 'Ainda não há aplicativos detectados.';
+}
+$('newGroup').onclick = () => openGroup();
+$('closeGroup').onclick = () => groupEditor.close();
+$('groupForm').onsubmit = event => {
+  event.preventDefault();
+  const apps = [...$('groupMembers').querySelectorAll('input:checked')].map(item => item.value);
+  edit('saveGroup', { id: selectedGroup.id, name: $('groupName').value, apps });
+};
+$('deleteGroup').onclick = () => edit('deleteGroup', { id: selectedGroup.id });
 function openEditor(row, type) {
   if (!snapshot) return;
   selected = { row, type };
@@ -171,6 +253,7 @@ function edit(action, payload) {
   if (pending) return;
   pending = action;
   $('editError').hidden = true;
+  $('groupError').hidden = true;
   send(action, payload);
 }
 $('mode').onchange = updateMode;
@@ -218,6 +301,12 @@ for (const button of document.querySelectorAll('[data-period]')) {
   };
 }
 bridge?.addEventListener('message', ({ data }) => {
+  if (data.action === 'groupApps') {
+    if (!groupEditor.open) return;
+    if (data.error) $('groupAppsStatus').textContent = data.error;
+    else showGroupApps(data.apps);
+    return;
+  }
   if (data.action === 'openApps') {
     if (!editor.open) return;
     const apps = data.apps ?? [];
@@ -235,7 +324,7 @@ bridge?.addEventListener('message', ({ data }) => {
     return;
   }
   const completed = pending && pending === data.action;
-  const error = completed && editor.open ? $('editError') : $('error');
+  const error = completed && groupEditor.open ? $('groupError') : completed && editor.open ? $('editError') : $('error');
   if (data.error) {
     error.hidden = false;
     error.textContent = data.detail || data.error;
@@ -243,6 +332,7 @@ bridge?.addEventListener('message', ({ data }) => {
     error.hidden = true;
     snapshot = data;
     if (completed && editor.open) editor.close();
+    if (completed && groupEditor.open) groupEditor.close();
     render(Boolean(completed));
   }
   if (completed) pending = null;

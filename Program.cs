@@ -256,6 +256,21 @@ sealed class Dashboard : Form
         switch (action)
         {
             case "openApps": Send(new { action, apps = Native.OpenApps() }); return;
+            case "groupApps":
+                var known = Native.OpenApps().Select(app => app.App).Concat(history.KnownApps())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(app => app, StringComparer.CurrentCultureIgnoreCase);
+                Send(new { action, apps = known.Select(app => new { app, icon = AppIcons.Find(app) }) });
+                return;
+            case "saveGroup":
+                var members = data.GetProperty("apps").EnumerateArray()
+                    .Select(item => (item.GetString() ?? "").Trim().ToLowerInvariant())
+                    .Distinct().ToArray();
+                if (members.Any(app => app.Length is < 1 or > 160))
+                    throw new ArgumentException("Um dos nomes de aplicativo é inválido.");
+                history.SaveAppGroup(ReadId(data), Field(data, "name"), members);
+                break;
+            case "deleteGroup": history.DeleteAppGroup(ReadId(data)); break;
             case "checkUpdate": _ = CheckForUpdate(stop.Token); break;
             case "installUpdate": if (InstallUpdate()) return; break;
             case "toggle": Toggle(); break;
@@ -285,15 +300,16 @@ sealed class Dashboard : Form
         var until = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var rows = history.Read(from, until);
         var current = tracker.Current(from, until);
+        var groups = history.AppGroups();
         var icons = rows.Select(row => row.App).Append(current?.App ?? "")
-            .Concat(history.Rules.Select(rule => rule.App)).Distinct()
+            .Concat(history.Rules.Select(rule => rule.App)).Concat(groups.SelectMany(group => group.Apps)).Distinct()
             .Select(app => (App: app, Icon: AppIcons.Find(app)))
             .Where(entry => entry.Icon != null)
             .ToDictionary(entry => entry.App, entry => entry.Icon);
         Send(new
         {
             action, period = week ? "week" : "day", paused, seconds, rows, current, icons,
-            rules = history.Rules,
+            rules = history.Rules, groups,
             update = new
             {
                 version = Updater.InstalledVersion.ToString(3),

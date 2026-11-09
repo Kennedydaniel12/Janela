@@ -49,6 +49,12 @@
     </section>
     <section id="rules" hidden>
       <div class="hero"><div><p class="eyebrow">ORGANIZAÇÃO</p><h1>Regras</h1></div><button id="newRule" class="primary">Nova regra</button></div>
+      <article class="card">
+        <h2>Grupos de aplicativos</h2>
+        <p class="muted">Some o tempo de processos que fazem parte do mesmo jogo ou aplicativo.</p>
+        <div id="groupList"></div>
+        <button id="newGroup" type="button" disabled>Novo grupo</button>
+      </article>
       <article class="card"><p class="muted">Uma regra por título tem prioridade. Deixe o título em branco para aplicar a regra ao aplicativo inteiro.</p><div id="ruleList"></div></article>
     </section>
     <section id="settings" hidden>
@@ -90,6 +96,20 @@
       <datalist id="projectNames"></datalist>
       <p id="editError" role="alert" hidden></p>
       <div class="actions"><button type="button" id="deleteRule" hidden>Excluir regra</button><button class="primary">Salvar</button></div>
+    </form>
+  </dialog>
+  <dialog id="groupEditor" aria-labelledby="groupEditorTitle">
+    <form id="groupForm">
+      <header class="editor-header"><h2 id="groupEditorTitle">Grupo de aplicativos</h2><button type="button" id="closeGroup" aria-label="Fechar painel">×</button></header>
+      <label for="groupName">Nome do grupo</label>
+      <input id="groupName" maxlength="160" placeholder="Ex.: League of Legends" required>
+      <fieldset class="group-fieldset">
+        <legend>Aplicativos do grupo</legend>
+        <p id="groupAppsStatus" class="muted" role="status"></p>
+        <div id="groupMembers" class="group-members"></div>
+      </fieldset>
+      <p id="groupError" role="alert" hidden></p>
+      <div class="actions"><button type="button" id="deleteGroup" hidden>Desfazer grupo</button><button class="primary" id="saveGroup">Salvar grupo</button></div>
     </form>
   </dialog>
 </body>

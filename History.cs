@@ -5,6 +5,7 @@ namespace Janela;
 sealed record Activity(string App, string Category, string Project, string State);
 sealed record Interval(long Id, long Start, long End, string App, string Category, string Project, string State);
 sealed record Rule(long Id, string App, string Contains, string Category, string Project);
+sealed record AppGroup(long Id, string Name, List<string> Apps);
 
 sealed class Tracker(Action<Activity, long, long> record)
 {
@@ -59,7 +60,7 @@ sealed class History : IDisposable
 
     public History(string path)
     {
-        db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, ForeignKeys = true }.ToString());
         db.Open();
         using var setup = Command("""
             PRAGMA journal_mode=WAL;
@@ -71,6 +72,10 @@ sealed class History : IDisposable
                 id INTEGER PRIMARY KEY, app TEXT NOT NULL, fragment TEXT NOT NULL COLLATE NOCASE,
                 category TEXT NOT NULL, project TEXT NOT NULL, UNIQUE(app, fragment));
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS app_groups(
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
+            CREATE TABLE IF NOT EXISTS app_group_members(
+                app TEXT PRIMARY KEY, group_id INTEGER NOT NULL REFERENCES app_groups(id) ON DELETE CASCADE);
             """);
         setup.ExecuteNonQuery();
         Reload();
@@ -151,6 +156,84 @@ sealed class History : IDisposable
         using var cmd = Command("DELETE FROM rules WHERE id=$id", ("$id", id));
         cmd.ExecuteNonQuery();
         Reload();
+    }
+
+    public IReadOnlyList<AppGroup> AppGroups()
+    {
+        using var cmd = Command("""
+            SELECT g.id, g.name, m.app FROM app_groups g
+            LEFT JOIN app_group_members m ON m.group_id=g.id ORDER BY g.name, m.app
+            """);
+        using var rows = cmd.ExecuteReader();
+        var groups = new Dictionary<long, AppGroup>();
+        while (rows.Read())
+        {
+            var id = rows.GetInt64(0);
+            if (!groups.TryGetValue(id, out var group))
+                groups[id] = group = new(id, rows.GetString(1), []);
+            if (!rows.IsDBNull(2)) group.Apps.Add(rows.GetString(2));
+        }
+        return groups.Values.ToArray();
+    }
+
+    public List<string> KnownApps()
+    {
+        using var cmd = Command("""
+            SELECT app FROM intervals WHERE app<>''
+            UNION SELECT app FROM rules
+            UNION SELECT app FROM app_group_members
+            ORDER BY app
+            """);
+        using var rows = cmd.ExecuteReader();
+        List<string> apps = [];
+        while (rows.Read()) apps.Add(rows.GetString(0));
+        return apps;
+    }
+
+    public void SaveAppGroup(long id, string name, string[] apps)
+    {
+        if (name.Length == 0 || apps.Length == 0)
+            throw new ArgumentException("Informe um nome e selecione pelo menos um aplicativo.");
+        using var transaction = db.BeginTransaction();
+        using var save = Command(id == 0
+            ? "INSERT INTO app_groups(name) VALUES($name)"
+            : "UPDATE app_groups SET name=$name WHERE id=$id",
+            ("$name", name), ("$id", id));
+        save.Transaction = transaction;
+        try
+        {
+            if (save.ExecuteNonQuery() != 1)
+                throw new ArgumentException("Este grupo não existe mais.");
+            var groupId = id;
+            if (id == 0)
+            {
+                using var last = Command("SELECT last_insert_rowid()");
+                last.Transaction = transaction;
+                groupId = (long)last.ExecuteScalar()!;
+            }
+            using var clear = Command("DELETE FROM app_group_members WHERE group_id=$id", ("$id", groupId));
+            clear.Transaction = transaction;
+            clear.ExecuteNonQuery();
+            using var add = Command("INSERT INTO app_group_members(app,group_id) VALUES($app,$id)",
+                ("$app", ""), ("$id", groupId));
+            add.Transaction = transaction;
+            foreach (var app in apps)
+            {
+                add.Parameters["$app"].Value = app;
+                add.ExecuteNonQuery();
+            }
+            transaction.Commit();
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            throw new ArgumentException("O nome já está em uso ou um aplicativo pertence a outro grupo.");
+        }
+    }
+
+    public void DeleteAppGroup(long id)
+    {
+        using var cmd = Command("DELETE FROM app_groups WHERE id=$id", ("$id", id));
+        cmd.ExecuteNonQuery();
     }
 
     public void Correct(IReadOnlyList<long> ids, string category, string project)
