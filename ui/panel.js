@@ -17,10 +17,26 @@ function duration(ms) {
   if (h) return h + ' h ' + m + ' min';
   return m ? m + ' min ' + (s % 60) + ' s' : s + ' s';
 }
-function listRow(label, tail, action) {
+const defaultIcon = 'app-placeholder.svg';
+function appIcon(app) {
+  return snapshot.icons && Object.hasOwn(snapshot.icons, app) ? snapshot.icons[app] : null;
+}
+function setAppIcon(image, url) {
+  image.onerror = () => { image.onerror = null; image.src = defaultIcon; };
+  image.src = url || defaultIcon;
+}
+function listRow(label, tail, action, app) {
   const row = make(action ? 'button' : 'div', undefined, 'row');
   if (action) { row.type = 'button'; row.onclick = action; }
-  row.append(make('span', label), make('strong', tail));
+  const title = make('span', undefined, 'row-label');
+  if (app) {
+    const icon = make('img', undefined, 'app-icon');
+    icon.alt = '';
+    setAppIcon(icon, appIcon(app));
+    title.append(icon);
+  }
+  title.append(make('span', label));
+  row.append(title, make('strong', tail));
   return row;
 }
 function group(rows, key, fallback) {
@@ -95,14 +111,14 @@ function render(force = false) {
   $('timeline').replaceChildren(bar);
   fill('intervals', sessions.slice(-limit).reverse().map(row => {
     const label = [date.format(row.start), time.format(row.start), states[row.state], row.app, row.project].filter(Boolean).join(' · ');
-    return listRow(label, duration(row.end - row.start), !row.live && row.app ? () => openEditor(row, 'interval') : undefined);
+    return listRow(label, duration(row.end - row.start), !row.live && row.app ? () => openEditor(row, 'interval') : undefined, row.app);
   }));
   $('more').hidden = sessions.length <= limit;
   fill('categories', group(active, 'category', 'Sem categoria').map(([label, amount]) => listRow(label, duration(amount))));
   fill('projects', group(active, 'project', 'Sem projeto').map(([label, amount]) => listRow(label, duration(amount))));
-  fill('apps', group(active, 'app', '').map(([app, amount]) => listRow(app, duration(amount), () => openEditor({ app }, 'app'))));
+  fill('apps', group(active, 'app', '').map(([app, amount]) => listRow(app, duration(amount), () => openEditor({ app }, 'app'), app)));
   fill('ruleList', rules.map(rule => listRow(
-    [rule.app, rule.contains, rule.category, rule.project].filter(Boolean).join(' · '), 'Editar', () => openEditor(rule, 'rule'))));
+    [rule.app, rule.contains, rule.category, rule.project].filter(Boolean).join(' · '), 'Editar', () => openEditor(rule, 'rule'), rule.app)));
 }
 function openEditor(row, type) {
   if (!snapshot) return;
@@ -112,6 +128,7 @@ function openEditor(row, type) {
   $('mode').options[0].disabled = type !== 'interval';
   $('app').value = row.app ?? '';
   $('openApps').replaceChildren(new Option('Selecione um aplicativo', ''));
+  updateSelectedAppIcon();
   $('openAppsStatus').textContent = '';
   $('fragment').value = row.contains ?? '';
   $('category').value = row.category ?? '';
@@ -140,8 +157,16 @@ function refreshApps() {
 $('refreshApps').onclick = refreshApps;
 $('openApps').onchange = () => {
   if ($('openApps').value) $('app').value = $('openApps').value;
+  updateSelectedAppIcon();
 };
-$('app').oninput = () => { $('openApps').value = $('app').value; };
+$('app').oninput = () => {
+  $('openApps').value = $('app').value;
+  updateSelectedAppIcon();
+};
+function updateSelectedAppIcon() {
+  const icon = $('openApps').selectedOptions[0]?.dataset.icon;
+  setAppIcon($('selectedAppIcon'), icon || appIcon($('app').value));
+}
 function edit(action, payload) {
   if (pending) return;
   pending = action;
@@ -197,8 +222,13 @@ bridge?.addEventListener('message', ({ data }) => {
     if (!editor.open) return;
     const apps = data.apps ?? [];
     $('openApps').replaceChildren(new Option('Selecione um aplicativo', ''),
-      ...apps.map(({ app, title }) => new Option(title + ' (' + app + ')', app)));
+      ...apps.map(({ app, title, icon }) => {
+        const option = new Option(title + ' (' + app + ')', app);
+        if (icon) option.dataset.icon = icon;
+        return option;
+      }));
     $('openApps').value = $('app').value;
+    updateSelectedAppIcon();
     $('openAppsStatus').textContent = data.error
       ? 'Não foi possível carregar a lista. Você pode digitar o processo.'
       : apps.length ? '' : 'Nenhum aplicativo aberto encontrado. Você pode digitar o processo.';

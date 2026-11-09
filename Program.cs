@@ -120,7 +120,7 @@ sealed class Dashboard : Form
         if (paused || locked || suspended || closingSession) return;
         var now = DateTimeOffset.UtcNow;
         var idle = Native.Idle();
-        var window = Native.Foreground();
+        var window = Native.Foreground(captureIcon: true);
         if (idle is null || window is null) { tracker.End(now); return; }
         var rule = history.Classify(window.App, window.Title);
         bool video = window.App is "chrome" or "msedge"
@@ -218,6 +218,9 @@ sealed class Dashboard : Form
             core.Settings.AreDefaultContextMenusEnabled = false;
             core.SetVirtualHostNameToFolderMapping("janela.local", Path.Combine(AppContext.BaseDirectory, "ui"),
                 Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind.DenyCors);
+            Directory.CreateDirectory(AppIcons.Folder);
+            core.SetVirtualHostNameToFolderMapping(AppIcons.Host, AppIcons.Folder,
+                Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind.DenyCors);
             core.NavigationStarting += (_, e) => e.Cancel = e.Uri != "https://janela.local/index.html";
             core.NewWindowRequested += (_, e) => e.Handled = true;
             core.WebMessageReceived += (_, e) =>
@@ -280,10 +283,16 @@ sealed class Dashboard : Form
         var day = week ? today.AddDays(-(((int)today.DayOfWeek + 6) % 7)) : today;
         var from = new DateTimeOffset(day).ToUnixTimeMilliseconds();
         var until = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var rows = history.Read(from, until);
+        var current = tracker.Current(from, until);
+        var icons = rows.Select(row => row.App).Append(current?.App ?? "")
+            .Concat(history.Rules.Select(rule => rule.App)).Distinct()
+            .Select(app => (App: app, Icon: AppIcons.Find(app)))
+            .Where(entry => entry.Icon != null)
+            .ToDictionary(entry => entry.App, entry => entry.Icon);
         Send(new
         {
-            action, period = week ? "week" : "day", paused, seconds, rows = history.Read(from, until),
-            current = tracker.Current(from, until),
+            action, period = week ? "week" : "day", paused, seconds, rows, current, icons,
             rules = history.Rules,
             update = new
             {
@@ -355,7 +364,8 @@ static class Native
             : null;
     }
 
-    public static WindowInfo? Foreground() => ReadWindow(GetForegroundWindow(), includeAppId: true);
+    public static WindowInfo? Foreground(bool captureIcon = false) =>
+        ReadWindow(GetForegroundWindow(), includeAppId: true, captureIcon);
 
     public static IReadOnlyList<OpenApp> OpenApps()
     {
@@ -366,17 +376,17 @@ static class Native
                 (DwmGetWindowAttribute(hwnd, DwmwaCloaked, out var cloaked, sizeof(int)) == 0 && cloaked != 0))
                 return true;
 
-            var window = ReadWindow(hwnd, includeAppId: false);
+            var window = ReadWindow(hwnd, includeAppId: false, captureIcon: true);
             if (window != null && !string.IsNullOrWhiteSpace(window.Title))
-                apps.TryAdd(window.App, new OpenApp(window.App, window.Title));
+                apps.TryAdd(window.App, new OpenApp(window.App, window.Title, AppIcons.Find(window.App)));
             return true;
         }, 0);
         return apps.Values.OrderBy(app => app.Title, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
 
-    public sealed record OpenApp(string App, string Title);
+    public sealed record OpenApp(string App, string Title, string? Icon);
 
-    static WindowInfo? ReadWindow(nint hwnd, bool includeAppId)
+    static WindowInfo? ReadWindow(nint hwnd, bool includeAppId, bool captureIcon)
     {
         if (hwnd == 0) return null;
         GetWindowThreadProcessId(hwnd, out var pid);
@@ -393,7 +403,9 @@ static class Native
                 try { GetApplicationUserModelId(process.Handle, ref length, appId); }
                 catch (System.ComponentModel.Win32Exception) { }
             }
-            return new(hwnd, process.ProcessName.ToLowerInvariant(), title.ToString(), appId.ToString());
+            var app = process.ProcessName.ToLowerInvariant();
+            if (captureIcon) AppIcons.Capture(process, app);
+            return new(hwnd, app, title.ToString(), appId.ToString());
         }
         catch (ArgumentException) { return null; }
         catch (InvalidOperationException) { return null; }

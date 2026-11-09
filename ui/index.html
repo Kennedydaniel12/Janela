@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https://icons.janela.local; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'">
   <title>Pulso</title>
   <link rel="icon" href="pulso.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
@@ -34,6 +34,11 @@
         </div>
       </div>
       <div id="metrics" class="metrics"></div>
+      <article class="card"><h2>Aplicativos</h2><div id="apps"></div></article>
+      <div class="grid">
+        <article class="card"><h2>Categorias</h2><div id="categories"></div></article>
+        <article class="card"><h2>Projetos</h2><div id="projects"></div></article>
+      </div>
       <article class="card">
         <h2>Linha do tempo</h2>
         <p class="muted legend"><span class="key active"></span> Atividade <span class="key video"></span> Reprodução <span class="key idle"></span> Inatividade</p>
@@ -41,11 +46,6 @@
         <div id="intervals"></div>
         <button id="more" hidden>Mostrar mais intervalos</button>
       </article>
-      <div class="grid">
-        <article class="card"><h2>Categorias</h2><div id="categories"></div></article>
-        <article class="card"><h2>Projetos</h2><div id="projects"></div></article>
-      </div>
-      <article class="card"><h2>Aplicativos</h2><div id="apps"></div></article>
     </section>
     <section id="rules" hidden>
       <div class="hero"><div><p class="eyebrow">ORGANIZAÇÃO</p><h1>Regras</h1></div><button id="newRule" class="primary">Nova regra</button></div>
@@ -76,6 +76,7 @@
       <div id="ruleFields">
         <label for="openApps">Aplicativos abertos</label>
         <div class="app-picker">
+          <img id="selectedAppIcon" class="app-icon" src="app-placeholder.svg" alt="">
           <select id="openApps" aria-describedby="openAppsStatus"><option value="">Selecione um aplicativo</option></select>
           <button type="button" id="refreshApps">Atualizar lista</button>
         </div>
