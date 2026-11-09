@@ -58,6 +58,13 @@
         <label for="seconds">Limite em segundos</label><input id="seconds" type="number" min="5" max="7200" required>
         <button class="primary">Salvar</button>
       </form>
+      <article class="card">
+        <h2>Atualizações</h2>
+        <p class="muted">Versão instalada <strong id="installedVersion">—</strong></p>
+        <p id="updateStatus" role="status"></p>
+        <button id="checkUpdate" disabled>Verificar atualizações</button>
+        <button id="installUpdate" class="primary" hidden>Atualizar agora</button>
+      </article>
     </section>
   </main>
   <dialog id="editor" aria-labelledby="editorTitle">
@@ -66,6 +73,12 @@
       <label for="mode">Aplicar a</label>
       <select id="mode"><option value="correct">Este intervalo</option><option value="saveRule">Atividades futuras (regra)</option></select>
       <div id="ruleFields">
+        <label for="openApps">Aplicativos abertos</label>
+        <div class="app-picker">
+          <select id="openApps" aria-describedby="openAppsStatus"><option value="">Selecione um aplicativo</option></select>
+          <button type="button" id="refreshApps">Atualizar lista</button>
+        </div>
+        <p id="openAppsStatus" class="muted" role="status"></p>
         <label for="app">Aplicativo (nome do processo)</label><input id="app" maxlength="160" placeholder="Ex.: code">
         <label for="fragment">Trecho do título (opcional)</label><input id="fragment" maxlength="160" placeholder="Ex.: nome do projeto">
       </div>

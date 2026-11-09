@@ -6,6 +6,8 @@ using System.Text.Json;
 
 namespace Janela;
 
+sealed record UpdatePackage(string Path, Version Version);
+
 static class Updater
 {
     const string Repository = "Kennedydaniel12/Janela";
@@ -14,10 +16,11 @@ static class Updater
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(3) };
 
     public static string InstalledMarker => Path.Combine(AppContext.BaseDirectory, "update-enabled");
+    public static Version InstalledVersion { get; } = Assembly.GetExecutingAssembly().GetName().Version!;
     static string DownloadFolder => Path.Combine(Program.DataPath, "updates");
     static string LastAttempt => Path.Combine(DownloadFolder, "last-attempt.txt");
 
-    public static async Task<string?> Check(CancellationToken token)
+    public static async Task<UpdatePackage?> Check(CancellationToken token)
     {
         if (!File.Exists(InstalledMarker)) return null;
         using var request = new HttpRequestMessage(HttpMethod.Get,
@@ -29,11 +32,10 @@ static class Updater
         using var release = JsonDocument.Parse(await response.Content.ReadAsStreamAsync(token));
         var root = release.RootElement;
         var tag = root.GetProperty("tag_name").GetString();
-        var installed = Assembly.GetExecutingAssembly().GetName().Version!;
         if (root.GetProperty("draft").GetBoolean() || root.GetProperty("prerelease").GetBoolean() ||
             tag is null || !tag.StartsWith('v') || !Version.TryParse(tag[1..], out var version) ||
             version.Revision >= 0 || version.Build < 0 ||
-            new Version(version.Major, version.Minor, version.Build, 0) <= installed) return null;
+            new Version(version.Major, version.Minor, version.Build, 0) <= InstalledVersion) return null;
         if (File.Exists(LastAttempt) &&
             DateTime.UtcNow - File.GetLastWriteTimeUtc(LastAttempt) < TimeSpan.FromHours(6) &&
             File.ReadAllText(LastAttempt) == tag) return null;
@@ -73,7 +75,7 @@ static class Updater
                 await target.WriteAsync(buffer.AsMemory(0, read), download);
             }
             verified = total == size && CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), expected);
-            return verified ? path : null;
+            return verified ? new UpdatePackage(path, version) : null;
         }
         finally { if (!verified) File.Delete(path); }
     }
@@ -89,11 +91,10 @@ static class Updater
         }
     }
 
-    public static void Launch(string path)
+    public static void Launch(UpdatePackage update)
     {
-        var version = Path.GetFileName(path).Split('-')[2];
-        File.WriteAllText(LastAttempt, "v" + version);
-        var start = new ProcessStartInfo(path) { UseShellExecute = false, CreateNoWindow = true };
+        File.WriteAllText(LastAttempt, "v" + update.Version);
+        var start = new ProcessStartInfo(update.Path) { UseShellExecute = false, CreateNoWindow = true };
         foreach (var flag in new[] { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/JanelaUpdate=1" })
             start.ArgumentList.Add(flag);
         start.ArgumentList.Add("/DIR=" + Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));

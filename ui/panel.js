@@ -36,7 +36,17 @@ function fill(id, children) {
 }
 function render(force = false) {
   if (!snapshot) return;
-  const { paused, seconds, rules, current } = snapshot;
+  const { paused, seconds, rules, current, update } = snapshot;
+  $('installedVersion').textContent = update.version;
+  $('checkUpdate').hidden = !update.enabled || Boolean(update.available);
+  $('checkUpdate').disabled = update.checking;
+  $('installUpdate').hidden = !update.available;
+  const updateStatus = update.error || (update.available ? 'Versão ' + update.available + ' pronta para instalar.'
+    : update.checking ? 'Verificando e baixando atualizações…'
+    : !update.enabled ? 'As atualizações automáticas estão disponíveis na versão instalada pelo assistente.'
+    : update.checkedUpdate ? 'Nenhuma atualização pronta para instalar.'
+    : 'O Janela verifica atualizações automaticamente.');
+  if ($('updateStatus').textContent !== updateStatus) $('updateStatus').textContent = updateStatus;
   $('newRule').disabled = false;
   $('toggle').disabled = false;
   $('toggle').textContent = paused ? 'Retomar coleta' : 'Pausar coleta';
@@ -85,6 +95,8 @@ function openEditor(row, type) {
   $('mode').value = type === 'interval' ? 'correct' : 'saveRule';
   $('mode').options[0].disabled = type !== 'interval';
   $('app').value = row.app ?? '';
+  $('openApps').replaceChildren(new Option('Selecione um aplicativo', ''));
+  $('openAppsStatus').textContent = '';
   $('fragment').value = row.contains ?? '';
   $('category').value = row.category ?? '';
   $('project').value = row.project ?? '';
@@ -97,13 +109,23 @@ function openEditor(row, type) {
   }
   $('categoryNames').replaceChildren(...[...categories].map(name => new Option(name)));
   $('projectNames').replaceChildren(...[...projects].map(name => new Option(name)));
-  updateMode();
   editor.showModal();
+  updateMode();
 }
 function updateMode() {
   $('ruleFields').hidden = $('mode').value === 'correct';
   $('app').required = !$('ruleFields').hidden;
+  if (!$('ruleFields').hidden) refreshApps();
 }
+function refreshApps() {
+  $('openAppsStatus').textContent = 'Buscando aplicativos abertos…';
+  send('openApps');
+}
+$('refreshApps').onclick = refreshApps;
+$('openApps').onchange = () => {
+  if ($('openApps').value) $('app').value = $('openApps').value;
+};
+$('app').oninput = () => { $('openApps').value = $('app').value; };
 function edit(action, payload) {
   if (pending) return;
   pending = action;
@@ -125,6 +147,8 @@ $('editForm').onsubmit = event => {
 $('deleteRule').onclick = () => edit('deleteRule', { id: selected.row.id });
 $('newRule').onclick = () => openEditor({}, 'new');
 $('toggle').onclick = () => send('toggle');
+$('checkUpdate').onclick = () => send('checkUpdate');
+$('installUpdate').onclick = () => send('installUpdate');
 $('more').onclick = () => { limit += 20; render(true); };
 $('seconds').oninput = () => { settingsDirty = true; };
 $('settingsForm').onsubmit = event => {
@@ -153,6 +177,17 @@ for (const button of document.querySelectorAll('[data-period]')) {
   };
 }
 bridge?.addEventListener('message', ({ data }) => {
+  if (data.action === 'openApps') {
+    if (!editor.open) return;
+    const apps = data.apps ?? [];
+    $('openApps').replaceChildren(new Option('Selecione um aplicativo', ''),
+      ...apps.map(({ app, title }) => new Option(title + ' (' + app + ')', app)));
+    $('openApps').value = $('app').value;
+    $('openAppsStatus').textContent = data.error
+      ? 'Não foi possível carregar a lista. Você pode digitar o processo.'
+      : apps.length ? '' : 'Nenhum aplicativo aberto encontrado. Você pode digitar o processo.';
+    return;
+  }
   const completed = pending && pending === data.action;
   const error = completed && editor.open ? $('editError') : $('error');
   if (data.error) {

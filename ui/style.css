@@ -51,6 +51,10 @@ dialog::backdrop { background: #0007; }
 .editor-header, .actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .actions { justify-content: flex-end; margin-top: 22px; }
 label { display: block; font-weight: 600; margin: 13px 0 5px; }
+.app-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-picker select { flex: 1 1 180px; min-width: 0; }
+#openAppsStatus { margin: 4px 0; font-size: 13px; }
+#openAppsStatus:empty { margin: 0; }
 input, select { width: 100%; }
 #settingsForm input { max-width: 140px; display: block; margin-bottom: 13px; }
 #error, #editError { color: var(--danger); }

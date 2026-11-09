@@ -57,7 +57,10 @@ sealed class Dashboard : Form
     bool exiting, locked, suspended, paused;
     bool closingSession;
     int seconds;
-    string? pendingInstaller;
+    readonly bool updatesEnabled = File.Exists(Updater.InstalledMarker);
+    UpdatePackage? pendingInstaller;
+    bool checkingUpdate, checkedUpdate;
+    string? updateError;
 
     public Dashboard(History history)
     {
@@ -104,19 +107,7 @@ sealed class Dashboard : Form
 
     void Sample()
     {
-        if (pendingInstaller != null && !ContainsFocus && !locked && !suspended && !closingSession)
-        {
-            var installer = pendingInstaller;
-            pendingInstaller = null;
-            try
-            {
-                Updater.Launch(installer);
-                exiting = true;
-                Close();
-                return;
-            }
-            catch (Exception ex) { Debug.WriteLine(ex); }
-        }
+        if (!ContainsFocus && updateError == null && InstallUpdate()) return;
         if (paused || locked || suspended || closingSession) return;
         var now = DateTimeOffset.UtcNow;
         var idle = Native.Idle();
@@ -135,26 +126,54 @@ sealed class Dashboard : Form
 
     async Task CheckUpdates(CancellationToken token)
     {
-        if (!File.Exists(Updater.InstalledMarker)) return;
+        if (!updatesEnabled) return;
         try
         {
             // Give an installer that just restarted the app time to exit.
             await Task.Delay(TimeSpan.FromSeconds(30), token);
             while (!token.IsCancellationRequested)
             {
-                try
-                {
-                    if (pendingInstaller == null)
-                    {
-                        Updater.CleanOldDownloads();
-                        pendingInstaller = await Updater.Check(token);
-                    }
-                }
-                catch (Exception ex) when (!token.IsCancellationRequested) { Debug.WriteLine(ex); }
+                await CheckForUpdate(token);
                 await Task.Delay(TimeSpan.FromHours(6), token);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    async Task CheckForUpdate(CancellationToken token)
+    {
+        if (!updatesEnabled || checkingUpdate || pendingInstaller != null) return;
+        checkingUpdate = true;
+        updateError = null;
+        try
+        {
+            Updater.CleanOldDownloads();
+            pendingInstaller = await Updater.Check(token);
+            checkedUpdate = true;
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex);
+            updateError = "Não foi possível verificar atualizações. Tente novamente.";
+        }
+        finally { checkingUpdate = false; }
+    }
+
+    bool InstallUpdate()
+    {
+        if (pendingInstaller == null || locked || suspended || closingSession) return false;
+        try { Updater.Launch(pendingInstaller); }
+        catch (Exception ex)
+        {
+            Debug.WriteLine(ex);
+            updateError = "Não foi possível iniciar a instalação. Tente novamente.";
+            return false;
+        }
+
+        exiting = true;
+        Close();
+        return true;
     }
 
     void SessionSwitch(object? sender, SessionSwitchEventArgs e)
@@ -224,6 +243,9 @@ sealed class Dashboard : Form
         var action = data.GetProperty("action").GetString();
         switch (action)
         {
+            case "openApps": Send(new { action, apps = Native.OpenApps() }); return;
+            case "checkUpdate": _ = CheckForUpdate(stop.Token); break;
+            case "installUpdate": if (InstallUpdate()) return; break;
             case "toggle": Toggle(); break;
             case "settings":
                 var limit = data.GetProperty("seconds").GetInt32();
@@ -252,7 +274,13 @@ sealed class Dashboard : Form
         {
             action, period = week ? "week" : "day", paused, seconds, rows = history.Read(from, until),
             current = tracker.Current(from, until),
-            rules = history.Rules
+            rules = history.Rules,
+            update = new
+            {
+                version = Updater.InstalledVersion.ToString(3),
+                available = pendingInstaller?.Version.ToString(3),
+                enabled = updatesEnabled, checking = checkingUpdate, checkedUpdate, error = updateError
+            }
         });
     }
 
@@ -291,9 +319,16 @@ sealed record WindowInfo(nint Handle, string App, string Title, string AppId);
 
 static class Native
 {
+    const int DwmwaCloaked = 14;
+
     [StructLayout(LayoutKind.Sequential)]
     struct LastInput { public uint Size; public uint Tick; }
 
+    delegate bool EnumWindow(nint hwnd, nint data);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindow callback, nint data);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(nint hwnd);
+    [DllImport("dwmapi.dll")]
+    static extern int DwmGetWindowAttribute(nint hwnd, int attribute, out int value, int size);
     [DllImport("user32.dll")] static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(nint hwnd, out uint pid);
     [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LastInput info);
@@ -310,9 +345,29 @@ static class Native
             : null;
     }
 
-    public static WindowInfo? Foreground()
+    public static WindowInfo? Foreground() => ReadWindow(GetForegroundWindow(), includeAppId: true);
+
+    public static IReadOnlyList<OpenApp> OpenApps()
     {
-        var hwnd = GetForegroundWindow();
+        var apps = new Dictionary<string, OpenApp>(StringComparer.OrdinalIgnoreCase);
+        EnumWindows((hwnd, _) =>
+        {
+            if (!IsWindowVisible(hwnd) ||
+                (DwmGetWindowAttribute(hwnd, DwmwaCloaked, out var cloaked, sizeof(int)) == 0 && cloaked != 0))
+                return true;
+
+            var window = ReadWindow(hwnd, includeAppId: false);
+            if (window != null && !string.IsNullOrWhiteSpace(window.Title))
+                apps.TryAdd(window.App, new OpenApp(window.App, window.Title));
+            return true;
+        }, 0);
+        return apps.Values.OrderBy(app => app.Title, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    }
+
+    public sealed record OpenApp(string App, string Title);
+
+    static WindowInfo? ReadWindow(nint hwnd, bool includeAppId)
+    {
         if (hwnd == 0) return null;
         GetWindowThreadProcessId(hwnd, out var pid);
         if (pid == 0 || pid == Environment.ProcessId) return null;
@@ -323,8 +378,11 @@ static class Native
             GetWindowText(hwnd, title, title.Capacity);
             var appId = new System.Text.StringBuilder(256);
             uint length = (uint)appId.Capacity;
-            try { GetApplicationUserModelId(process.Handle, ref length, appId); }
-            catch (System.ComponentModel.Win32Exception) { }
+            if (includeAppId)
+            {
+                try { GetApplicationUserModelId(process.Handle, ref length, appId); }
+                catch (System.ComponentModel.Win32Exception) { }
+            }
             return new(hwnd, process.ProcessName.ToLowerInvariant(), title.ToString(), appId.ToString());
         }
         catch (ArgumentException) { return null; }
