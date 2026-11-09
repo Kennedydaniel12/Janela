@@ -135,19 +135,61 @@ sealed class History : IDisposable
         return (category ?? "", project ?? "");
     }
 
-    public void SaveRule(long id, string app, string fragment, string category, string project)
+    const string RetroactiveFilter = """
+        app=$app AND state<>'idle' AND
+        (($c<>'' AND category<>$c) OR ($p<>'' AND project<>$p))
+        """;
+
+    void ValidateRetroactive(string app, string fragment, string category, string project, SqliteTransaction? transaction)
+    {
+        if (fragment != "" || app == "" || (category == "" && project == ""))
+            throw new ArgumentException("O histórico só pode ser atualizado por regras do aplicativo inteiro.");
+        using var cmd = Command("SELECT 1 FROM rules WHERE app=$app AND fragment<>'' LIMIT 1", ("$app", app));
+        cmd.Transaction = transaction;
+        if (cmd.ExecuteScalar() != null)
+            throw new ArgumentException("Este aplicativo tem regras por título. Como os títulos não são guardados, corrija as sessões na linha do tempo.");
+    }
+
+    public (long Count, long Milliseconds, long ThroughId) PreviewRule(string app, string fragment, string category, string project)
+    {
+        app = app.ToLowerInvariant();
+        ValidateRetroactive(app, fragment, category, project, null);
+        using var cmd = Command("SELECT count(*), coalesce(sum(end-start),0), coalesce(max(id),0) FROM intervals WHERE " +
+            RetroactiveFilter, ("$app", app), ("$c", category), ("$p", project));
+        using var row = cmd.ExecuteReader();
+        row.Read();
+        return (row.GetInt64(0), row.GetInt64(1), row.GetInt64(2));
+    }
+
+    public void SaveRule(long id, string app, string fragment, string category, string project, long? throughId = null)
     {
         if (app == "" || (category == "" && project == ""))
             throw new ArgumentException("Informe um aplicativo e uma categoria ou projeto.");
+        app = app.ToLowerInvariant();
+        using var transaction = db.BeginTransaction();
+        if (throughId.HasValue) ValidateRetroactive(app, fragment, category, project, transaction);
         var sql = id > 0
             ? "UPDATE rules SET app=$app, fragment=$f, category=$c, project=$p WHERE id=$id"
             : """
               INSERT INTO rules(app,fragment,category,project) VALUES($app,$f,$c,$p)
               ON CONFLICT(app,fragment) DO UPDATE SET category=$c,project=$p
               """;
-        using var cmd = Command(sql, ("$id", id), ("$app", app.ToLowerInvariant()), ("$f", fragment),
+        using var cmd = Command(sql, ("$id", id), ("$app", app), ("$f", fragment),
             ("$c", category), ("$p", project));
+        cmd.Transaction = transaction;
         cmd.ExecuteNonQuery();
+        if (throughId is > 0)
+        {
+            using var update = Command("""
+                UPDATE intervals SET category=CASE WHEN $c='' THEN category ELSE $c END,
+                    project=CASE WHEN $p='' THEN project ELSE $p END
+                WHERE id<=$id AND
+                """ + " " + RetroactiveFilter,
+                ("$id", throughId.Value), ("$app", app), ("$c", category), ("$p", project));
+            update.Transaction = transaction;
+            update.ExecuteNonQuery();
+        }
+        transaction.Commit();
         Reload();
     }
 
@@ -270,6 +312,15 @@ sealed class History : IDisposable
             result.Add(new(rows.GetInt64(0), rows.GetInt64(1), rows.GetInt64(2), rows.GetString(3),
                 rows.GetString(4), rows.GetString(5), rows.GetString(6)));
         return result;
+    }
+
+    public long ActiveMilliseconds(long from, long until)
+    {
+        using var cmd = Command("""
+            SELECT coalesce(sum(min(end,$until)-max(start,$from)),0)
+            FROM intervals WHERE state<>'idle' AND end>$from AND start<$until
+            """, ("$from", from), ("$until", until));
+        return Convert.ToInt64(cmd.ExecuteScalar());
     }
 
     public void Dispose() => db.Dispose();

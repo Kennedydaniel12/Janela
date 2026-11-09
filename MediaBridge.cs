@@ -32,9 +32,13 @@ sealed class MediaBridge
                 byte[] bytes = new byte[2];
                 await pipe.ReadExactlyAsync(bytes, timeout.Token).ConfigureAwait(false);
                 var window = Native.Foreground();
-                var app = bytes[0] switch { 1 => "chrome", 2 => "msedge", _ => "" };
-                if (window == null || window.App != app) continue;
-                if (bytes[1] == 1) Volatile.Write(ref current, new Signal(app, window.Handle, Environment.TickCount64));
+                if (window == null || !(bytes[0] switch
+                {
+                    1 => window.App is "chrome" or "brave",
+                    2 => window.App == "msedge",
+                    _ => false
+                })) continue;
+                if (bytes[1] == 1) Volatile.Write(ref current, new Signal(window.App, window.Handle, Environment.TickCount64));
                 else Clear();
             }
             catch (OperationCanceledException) { }

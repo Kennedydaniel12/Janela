@@ -30,17 +30,32 @@
         <div><p class="eyebrow">SEU TEMPO NO WINDOWS</p><h1>Visão geral</h1><p id="date" class="muted"></p></div>
         <div class="segmented" aria-label="Período">
           <button data-period="day" aria-pressed="true">Hoje</button>
+          <button data-period="yesterday" aria-pressed="false">Ontem</button>
           <button data-period="week" aria-pressed="false">Semana</button>
+          <button data-period="last7" aria-pressed="false">Últimos 7 dias</button>
+          <button data-period="custom" aria-expanded="false" aria-controls="customPeriod">Personalizado</button>
         </div>
       </div>
+      <form id="customPeriod" class="card timeline-filters" hidden>
+        <label>De <input id="periodStart" type="date" min="2000-01-01" required></label>
+        <label>Até <input id="periodEnd" type="date" min="2000-01-01" required></label>
+        <button class="primary">Aplicar período</button>
+      </form>
       <div id="metrics" class="metrics"></div>
+      <p id="comparison" class="muted"></p>
       <article class="card"><h2>Aplicativos</h2><div id="apps"></div></article>
       <div class="grid">
         <article class="card"><h2>Categorias</h2><div id="categories"></div></article>
         <article class="card"><h2>Projetos</h2><div id="projects"></div></article>
       </div>
       <article class="card">
-        <h2>Linha do tempo</h2>
+        <h2 id="timelineHeading">Linha do tempo</h2>
+        <div class="timeline-filters">
+          <label>Aplicativo ou grupo <select id="filterApp"><option value="">Todos</option></select></label>
+          <label>Categoria <select id="filterCategory"><option value="">Todas</option></select></label>
+          <label>Projeto <select id="filterProject"><option value="">Todos</option></select></label>
+          <button id="clearFilters" type="button">Limpar filtros</button>
+        </div>
         <p class="muted legend"><span class="key active"></span> Atividade <span class="key video"></span> Reprodução <span class="key idle"></span> Inatividade</p>
         <div id="timeline" class="timeline" aria-hidden="true"></div>
         <div id="intervals"></div>
@@ -59,6 +74,11 @@
     </section>
     <section id="settings" hidden>
       <div class="hero"><div><p class="eyebrow">PREFERÊNCIAS LOCAIS</p><h1>Configurações</h1></div></div>
+      <article class="card">
+        <h2>Inicialização</h2>
+        <label class="startup-option"><input id="startWithWindows" type="checkbox" disabled> Iniciar o Pulso com o Windows, na bandeja</label>
+        <p class="muted">A pausa manual é preservada quando o Pulso abre novamente.</p>
+      </article>
       <form id="settingsForm" class="card">
         <h2>Inatividade</h2>
         <p class="muted">O tempo após este limite é separado como inatividade. Vídeo detectado na janela em foco mantém a contagem.</p>
@@ -95,6 +115,11 @@
       <label for="project">Projeto</label><input id="project" maxlength="160" list="projectNames" placeholder="Ex.: nome do projeto">
       <datalist id="projectNames"></datalist>
       <p id="editError" role="alert" hidden></p>
+      <div id="retroControls">
+        <button id="previewRule" type="button">Prévia no histórico</button>
+        <p id="retroSummary" class="muted" role="status" hidden></p>
+        <button id="applyRetro" class="primary" type="button" hidden>Salvar e aplicar ao histórico</button>
+      </div>
       <div class="actions"><button type="button" id="deleteRule" hidden>Excluir regra</button><button class="primary">Salvar</button></div>
     </form>
   </dialog>

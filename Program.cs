@@ -63,6 +63,8 @@ sealed class Dashboard : Form
     bool closingSession;
     int seconds;
     readonly bool updatesEnabled = File.Exists(Updater.InstalledMarker);
+    const string StartupKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    const string StartupName = "Pulso";
     UpdatePackage? pendingInstaller;
     bool checkingUpdate, checkedUpdate;
     string? updateError;
@@ -123,7 +125,7 @@ sealed class Dashboard : Form
         var window = Native.Foreground(captureIcon: true);
         if (idle is null || window is null) { tracker.End(now); return; }
         var rule = history.Classify(window.App, window.Title);
-        bool video = window.App is "chrome" or "msedge"
+        bool video = window.App is "chrome" or "msedge" or "brave"
             ? browser.Playing(window.App, window.Handle)
             : media.Playing(window);
         var remaining = TimeSpan.FromSeconds(seconds) - idle.Value;
@@ -255,6 +257,20 @@ sealed class Dashboard : Form
         var action = data.GetProperty("action").GetString();
         switch (action)
         {
+            case "startup":
+                if (!updatesEnabled) throw new ArgumentException("Instale o Pulso para habilitar o início com o Windows.");
+                using (var key = Registry.CurrentUser.CreateSubKey(StartupKey))
+                {
+                    if (data.GetProperty("enabled").GetBoolean())
+                        key.SetValue(StartupName, $"\"{Application.ExecutablePath}\" --background");
+                    else key.DeleteValue(StartupName, false);
+                }
+                break;
+            case "previewRule":
+                var preview = history.PreviewRule(
+                    Field(data, "app"), Field(data, "contains"), Field(data, "category"), Field(data, "project"));
+                Send(new { action, preview.Count, preview.Milliseconds, preview.ThroughId });
+                return;
             case "openApps": Send(new { action, apps = Native.OpenApps() }); return;
             case "groupApps":
                 var known = Native.OpenApps().Select(app => app.App).Concat(history.KnownApps())
@@ -282,7 +298,8 @@ sealed class Dashboard : Form
                 break;
             case "saveRule":
                 history.SaveRule(ReadId(data), Field(data, "app"), Field(data, "contains"),
-                    Field(data, "category"), Field(data, "project"));
+                    Field(data, "category"), Field(data, "project"),
+                    data.TryGetProperty("throughId", out var throughId) ? throughId.GetInt64() : null);
                 break;
             case "deleteRule": history.DeleteRule(ReadId(data)); break;
             case "correct":
@@ -293,11 +310,36 @@ sealed class Dashboard : Form
             default: return;
         }
 
-        bool week = data.TryGetProperty("period", out var p) && p.GetString() == "week";
+        var period = data.TryGetProperty("period", out var p) ? p.GetString() : "day";
         var today = DateTime.Today;
-        var day = week ? today.AddDays(-(((int)today.DayOfWeek + 6) % 7)) : today;
-        var from = new DateTimeOffset(day).ToUnixTimeMilliseconds();
-        var until = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var start = period switch
+        {
+            "week" => today.AddDays(-(((int)today.DayOfWeek + 6) % 7)),
+            "yesterday" => today.AddDays(-1),
+            "last7" => today.AddDays(-6),
+            "custom" => ReadDate(data, "start"),
+            _ => today
+        };
+        var end = period switch
+        {
+            "yesterday" => today,
+            "custom" => ReadDate(data, "end").AddDays(1),
+            _ => today.AddDays(1)
+        };
+        if (start >= end || start > today || end > today.AddDays(1))
+            throw new ArgumentException("Escolha um período válido, até hoje.");
+        var from = new DateTimeOffset(start).ToUnixTimeMilliseconds();
+        var until = Math.Min(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            new DateTimeOffset(end).ToUnixTimeMilliseconds());
+        var offsetDays = period switch
+        {
+            "week" or "last7" => 7,
+            "custom" => (end - start).Days,
+            _ => 1
+        };
+        var previousStart = new DateTimeOffset(start.AddDays(-offsetDays)).ToUnixTimeMilliseconds();
+        var previousEnd = new DateTimeOffset(DateTimeOffset.FromUnixTimeMilliseconds(until)
+            .LocalDateTime.AddDays(-offsetDays)).ToUnixTimeMilliseconds();
         var rows = history.Read(from, until);
         var current = tracker.Current(from, until);
         var groups = history.AppGroups();
@@ -308,7 +350,10 @@ sealed class Dashboard : Form
             .ToDictionary(entry => entry.App, entry => entry.Icon);
         Send(new
         {
-            action, period = week ? "week" : "day", paused, seconds, rows, current, icons,
+            action, period, rangeKey = Field(data, "rangeKey"), from, until, paused, seconds, rows, current, icons,
+            previousActive = history.ActiveMilliseconds(previousStart, previousEnd),
+            startup = new { enabled = Registry.GetValue(@"HKEY_CURRENT_USER\" + StartupKey, StartupName, null) is string,
+                available = updatesEnabled },
             rules = history.Rules, groups,
             update = new
             {
@@ -320,6 +365,14 @@ sealed class Dashboard : Form
     }
 
     static long ReadId(JsonElement data) => data.GetProperty("id").GetInt64();
+    static DateTime ReadDate(JsonElement data, string name)
+    {
+        if (!DateOnly.TryParseExact(Field(data, name), "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date) ||
+            date.Year < 2000 || date > DateOnly.FromDateTime(DateTime.Today))
+            throw new ArgumentException("Informe datas válidas para o período.");
+        return date.ToDateTime(TimeOnly.MinValue);
+    }
     static string Field(JsonElement data, string name)
     {
         var value = data.GetProperty(name).GetString()?.Trim() ?? "";

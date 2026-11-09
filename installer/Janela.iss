@@ -95,3 +95,9 @@ begin
     Exec(ExpandConstant('{app}\Janela.exe'), '--background', ExpandConstant('{app}'),
       SW_HIDE, ewNoWait, ResultCode);
 end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Pulso');
+end;

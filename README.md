@@ -31,14 +31,15 @@ O Pulso instalado consulta o GitHub ao iniciar e a cada seis horas. Quando há u
 
 Cada push na `main` dispara o fluxo de publicação. O GitHub Releases é a fonte das atualizações. O instalador ainda não tem assinatura Authenticode.
 
-## Detectar vídeo no Chrome e no Edge
+## Detectar vídeo no Chrome, Edge e Brave
 
-1. Abra `chrome://extensions` ou `edge://extensions`, ative o modo de desenvolvedor e carregue a pasta `extension` como extensão sem compactação.
+1. Abra `chrome://extensions`, `edge://extensions` ou `brave://extensions`, ative o modo de desenvolvedor e carregue a pasta `extension` como extensão sem compactação.
 2. Copie o ID mostrado pelo navegador. Registre a ponte para cada navegador onde instalou a extensão:
 
    ```powershell
    .\Register-Extension.ps1 -Browser Chrome -ExtensionId '<id-do-chrome>' -Executable .\publish\Janela.exe
    .\Register-Extension.ps1 -Browser Edge -ExtensionId '<id-do-edge>' -Executable .\publish\Janela.exe
+   .\Register-Extension.ps1 -Browser Brave -ExtensionId '<id-do-brave>' -Executable .\publish\Janela.exe
    ```
 
 3. Recarregue a extensão e as páginas de vídeo que já estavam abertas. Repita o registro após mover a pasta de publicação ou recompilar o executável.
@@ -48,6 +49,8 @@ O registro é feito só para o usuário atual. A extensão verifica se um elemen
 ## Organizar seu tempo
 
 Em **Aplicativos**, clique no nome de um app para criar uma regra. Preencha só a categoria para classificar o aplicativo inteiro. Crie outra regra com o trecho do título para atribuir o projeto. Em cada campo, a regra com trecho mais específico tem prioridade. Uma regra nova vale para os próximos intervalos. Para alterar um intervalo já salvo, clique nele na linha do tempo.
+
+Use **Prévia no histórico** para revisar o tempo afetado e aplicar uma regra retroativamente. A opção está disponível para apps sem regras por título. A Visão geral permite comparar o período selecionado com o anterior e filtrar a linha do tempo por app, grupo, categoria ou projeto. Em **Configurações → Inicialização**, você pode abrir o Pulso na bandeja ao entrar no Windows.
 
 O SQLite fica em `%LOCALAPPDATA%\Janela\history.sqlite`. O histórico guarda nome do processo, início, fim, categoria, projeto e estado. O título da janela é consultado em memória. Trechos que você inserir em regras são salvos localmente. A coleta acontece na sessão em que o aplicativo está rodando.
 

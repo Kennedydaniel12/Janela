@@ -7,8 +7,12 @@ let selectedGroup;
 const states = { active: 'Atividade', video: 'Reprodução', idle: 'Inatividade' };
 const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
+const dateWithYear = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 let period = 'day', view = 'overview', limit = 8, snapshot, selected, pending, settingsDirty;
-function send(action, fields = {}) { bridge?.postMessage({ action, period, ...fields }); }
+let customRange = {}, retroPreview, previewDraft;
+const filterIds = ['filterApp', 'filterCategory', 'filterProject'];
+function rangeKey() { return period === 'custom' ? customRange.start + '/' + customRange.end : period; }
+function send(action, fields = {}) { bridge?.postMessage({ action, period, rangeKey: rangeKey(), ...customRange, ...fields }); }
 function make(tag, text, className) {
   const node = document.createElement(tag);
   if (text !== undefined) node.textContent = text;
@@ -105,9 +109,39 @@ function groupSessions(rows) {
 function fill(id, children) {
   $(id).replaceChildren(...(children.length ? children : [make('p', 'Ainda sem registros neste período.', 'muted')]));
 }
+function filterOptions(id, all, options) {
+  const select = $(id), previous = select.value;
+  if (document.activeElement === select) return;
+  select.replaceChildren(new Option(all, ''), ...options.map(([value, label]) => new Option(label, value)));
+  select.value = options.some(([value]) => value === previous) ? previous : '';
+}
+function filterTimeline(rows, groups) {
+  filterOptions('filterApp', 'Todos', [
+    ...groups.map(group => ['group:' + group.id, group.name + ' (grupo)']),
+    ...group(rows.filter(row => row.app), 'app', '').map(([app]) => ['app:' + app, app])
+  ]);
+  const active = rows.filter(row => row.state !== 'idle');
+  filterOptions('filterCategory', 'Todas', group(active, 'category', 'Sem categoria').map(([name]) => ['v:' + name, name]));
+  filterOptions('filterProject', 'Todos', group(active, 'project', 'Sem projeto').map(([name]) => ['v:' + name, name]));
+  const [app, category, project] = filterIds.map(id => $(id).value);
+  const members = groups.find(group => 'group:' + group.id === app)?.apps;
+  $('clearFilters').disabled = !(app || category || project);
+  return rows.filter(row =>
+    (!app || (members ? members.includes(row.app) : app === 'app:' + row.app)) &&
+    (!category || (row.state !== 'idle' && category === 'v:' + (row.category || 'Sem categoria'))) &&
+    (!project || (row.state !== 'idle' && project === 'v:' + (row.project || 'Sem projeto'))));
+}
+function applyTimelineFilter(id, value) {
+  $(id).value = value;
+  limit = 8;
+  render(true);
+  $('timelineHeading').scrollIntoView({ block: 'start' });
+}
 function render(force = false) {
   if (!snapshot) return;
-  const { paused, seconds, rules, current, update, groups } = snapshot;
+  const { paused, seconds, rules, current, update, groups, startup } = snapshot;
+  $('startWithWindows').disabled = !startup.available;
+  $('startWithWindows').checked = startup.enabled;
   $('installedVersion').textContent = update.version;
   $('checkUpdate').hidden = !update.enabled || Boolean(update.available);
   $('checkUpdate').disabled = update.checking;
@@ -127,20 +161,23 @@ function render(force = false) {
   if (!force && (editor.open || groupEditor.open || document.activeElement?.closest('.row, #more'))) return;
 
   const rows = current ? [...snapshot.rows, current] : snapshot.rows;
-  const sessions = groupSessions(rows);
+  const sessions = groupSessions(filterTimeline(rows, groups));
   const active = rows.filter(row => row.state !== 'idle');
   const totals = { active: 0, video: 0, idle: 0 };
   for (const row of rows) totals[row.state] += row.end - row.start;
+  $('comparison').textContent = 'Tempo em uso (atividade + reprodução): ' + duration(totals.active + totals.video) +
+    ' · período anterior equivalente: ' + duration(snapshot.previousActive);
   $('metrics').replaceChildren(...Object.entries(totals).map(([key, amount]) => {
     const card = make('article', undefined, 'card metric');
     card.append(make('span', states[key], 'muted'), make('strong', duration(amount)));
     return card;
   }));
 
-  const end = new Date(), start = new Date(end);
-  start.setHours(0, 0, 0, 0);
-  if (period === 'week') start.setDate(start.getDate() - (start.getDay() + 6) % 7);
-  $('date').textContent = period === 'week' ? date.format(start) + ' — ' + date.format(end) : date.format(end);
+  const start = snapshot.from, end = snapshot.until;
+  const lastDay = Math.max(start, end - 1);
+  const formatter = period === 'custom' ? dateWithYear : date;
+  const firstDate = formatter.format(start), lastDate = formatter.format(lastDay);
+  $('date').textContent = firstDate === lastDate ? firstDate : firstDate + ' — ' + lastDate;
   const width = Math.max(1, end - start);
   const bar = document.createDocumentFragment();
   for (const row of sessions) {
@@ -155,8 +192,10 @@ function render(force = false) {
     return listRow(label, duration(row.end - row.start), !row.live && row.app ? () => openEditor(row, 'interval') : undefined, row.app);
   }));
   $('more').hidden = sessions.length <= limit;
-  fill('categories', group(active, 'category', 'Sem categoria').map(([label, amount]) => listRow(label, duration(amount))));
-  fill('projects', group(active, 'project', 'Sem projeto').map(([label, amount]) => listRow(label, duration(amount))));
+  fill('categories', group(active, 'category', 'Sem categoria').map(([label, amount]) =>
+    listRow(label, duration(amount), () => applyTimelineFilter('filterCategory', 'v:' + label))));
+  fill('projects', group(active, 'project', 'Sem projeto').map(([label, amount]) =>
+    listRow(label, duration(amount), () => applyTimelineFilter('filterProject', 'v:' + label))));
   fill('apps', groupAppTotals(active, groups).map(appTotalRow));
   fill('groupList', groups.map(group => listRow(group.name, group.apps.length + ' app(s)', () => openGroup(group),
     group.apps.find(app => appIcon(app)) || group.apps[0])));
@@ -205,6 +244,7 @@ $('deleteGroup').onclick = () => edit('deleteGroup', { id: selectedGroup.id });
 function openEditor(row, type) {
   if (!snapshot) return;
   selected = { row, type };
+  clearRetro();
   $('editorTitle').textContent = type === 'interval' ? 'Classificar sessão' : 'Regra de classificação';
   $('mode').value = type === 'interval' ? 'correct' : 'saveRule';
   $('mode').options[0].disabled = type !== 'interval';
@@ -230,6 +270,8 @@ function openEditor(row, type) {
 function updateMode() {
   $('ruleFields').hidden = $('mode').value === 'correct';
   $('app').required = !$('ruleFields').hidden;
+  $('retroControls').hidden = $('ruleFields').hidden;
+  clearRetro();
   if (!$('ruleFields').hidden) refreshApps();
 }
 function refreshApps() {
@@ -260,17 +302,41 @@ $('mode').onchange = updateMode;
 $('closeEditor').onclick = () => editor.close();
 $('editForm').onsubmit = event => {
   event.preventDefault();
+  const action = $('mode').value;
+  edit(action, ruleFields());
+};
+function ruleFields() {
   const { row, type } = selected;
   const action = $('mode').value;
-  edit(action, {
+  return {
     id: type === 'rule' ? row.id : 0, ids: action === 'correct' ? row.ids : [],
     app: $('app').value, contains: $('fragment').value,
     category: $('category').value, project: $('project').value
-  });
+  };
+}
+function clearRetro() {
+  retroPreview = null;
+  previewDraft = null;
+  $('retroSummary').hidden = true;
+  $('applyRetro').hidden = true;
+}
+$('editForm').addEventListener('input', clearRetro);
+$('previewRule').onclick = () => {
+  if (pending || !$('editForm').reportValidity()) return;
+  clearRetro();
+  const fields = ruleFields();
+  previewDraft = JSON.stringify(fields);
+  edit('previewRule', fields);
+};
+$('applyRetro').onclick = () => {
+  if (retroPreview && previewDraft === JSON.stringify(ruleFields())) {
+    edit('saveRule', { ...ruleFields(), throughId: retroPreview.throughId });
+  }
 };
 $('deleteRule').onclick = () => edit('deleteRule', { id: selected.row.id });
 $('newRule').onclick = () => openEditor({}, 'new');
 $('toggle').onclick = () => send('toggle');
+$('startWithWindows').onchange = () => send('startup', { enabled: $('startWithWindows').checked });
 $('checkUpdate').onclick = () => send('checkUpdate');
 $('installUpdate').onclick = () => send('installUpdate');
 $('more').onclick = () => { limit += 20; render(true); };
@@ -290,16 +356,47 @@ for (const button of document.querySelectorAll('[data-view]')) {
     render(true);
   };
 }
+function setPeriod(value) {
+  period = value;
+  limit = 8;
+  for (const item of document.querySelectorAll('[data-period]')) {
+    item.setAttribute('aria-pressed', String(item.dataset.period === value));
+  }
+  send('refresh');
+}
+for (const id of filterIds) $(id).onchange = () => { limit = 8; render(true); };
+$('clearFilters').onclick = () => {
+  for (const id of filterIds) $(id).value = '';
+  limit = 8;
+  render(true);
+};
 for (const button of document.querySelectorAll('[data-period]')) {
   button.onclick = () => {
-    period = button.dataset.period;
-    limit = 8;
-    for (const item of document.querySelectorAll('[data-period]')) {
-      item.setAttribute('aria-pressed', String(item === button));
+    const custom = button.dataset.period === 'custom';
+    $('customPeriod').hidden = custom ? !$('customPeriod').hidden : true;
+    document.querySelector('[data-period="custom"]').setAttribute('aria-expanded', String(!$('customPeriod').hidden));
+    if (!custom) setPeriod(button.dataset.period);
+    else if (!$('customPeriod').hidden) {
+      const now = new Date();
+      const today = new Date(now - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+      for (const id of ['periodStart', 'periodEnd']) {
+        $(id).max = today;
+        if (!$(id).value) $(id).value = today;
+      }
     }
-    send('refresh');
   };
 }
+$('customPeriod').onsubmit = event => {
+  event.preventDefault();
+  const start = $('periodStart').value, end = $('periodEnd').value;
+  if (start > end) {
+    $('error').textContent = 'A data inicial precisa ser anterior ou igual à final.';
+    $('error').hidden = false;
+    return;
+  }
+  customRange = { start, end };
+  setPeriod('custom');
+};
 bridge?.addEventListener('message', ({ data }) => {
   if (data.action === 'groupApps') {
     if (!groupEditor.open) return;
@@ -325,10 +422,21 @@ bridge?.addEventListener('message', ({ data }) => {
   }
   const completed = pending && pending === data.action;
   const error = completed && groupEditor.open ? $('groupError') : completed && editor.open ? $('editError') : $('error');
+  if (data.action === 'previewRule' && !data.error) {
+    pending = null;
+    if (!editor.open || previewDraft !== JSON.stringify(ruleFields())) return;
+    retroPreview = data;
+    $('retroSummary').textContent = data.count
+      ? duration(data.milliseconds) + ' de tempo registrado será reclassificado. Revise antes de aplicar.'
+      : 'Nenhum registro anterior precisa mudar.';
+    $('retroSummary').hidden = false;
+    $('applyRetro').hidden = !data.count;
+    return;
+  }
   if (data.error) {
     error.hidden = false;
     error.textContent = data.detail || data.error;
-  } else if (data.period === period) {
+  } else if (data.rangeKey === rangeKey()) {
     error.hidden = true;
     snapshot = data;
     if (completed && editor.open) editor.close();
