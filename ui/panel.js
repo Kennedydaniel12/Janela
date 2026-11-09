@@ -2,8 +2,10 @@ const $ = id => document.getElementById(id);
 const bridge = window.chrome?.webview;
 const editor = $('editor');
 const groupEditor = $('groupEditor');
+const goalEditor = $('goalEditor');
 const expandedGroups = new Set();
 let selectedGroup;
+let weeklyReport, selectedGoal, trayDirty = false;
 const states = { active: 'Atividade', video: 'Reprodução', idle: 'Inatividade' };
 const time = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const date = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
@@ -47,7 +49,8 @@ function listRow(label, tail, action, app) {
     title.append(icon);
   }
   title.append(make('span', label));
-  row.append(title, make('strong', tail));
+  row.append(title);
+  if (tail !== undefined) row.append(make('strong', tail));
   return row;
 }
 function group(rows, key, fallback) {
@@ -76,7 +79,7 @@ function appTotalRow({ app, appGroup, amount, members }) {
   const block = make('div', undefined, 'app-group');
   const children = make('div', undefined, 'app-group-members');
   const iconApp = members.find(([name]) => appIcon(name))?.[0] || app;
-  const button = listRow(appGroup.name, duration(amount), () => {
+  const button = listRow(appGroup.name, undefined, () => {
     if (expandedGroups.has(appGroup.id)) expandedGroups.delete(appGroup.id);
     else expandedGroups.add(appGroup.id);
     syncExpanded();
@@ -92,11 +95,11 @@ function appTotalRow({ app, appGroup, amount, members }) {
   button.querySelector('.row-label').append(marker);
   children.append(...members.map(([name, total]) => listRow(name, duration(total), () => openDetails('app', name), name)));
   const header = make('div', undefined, 'group-detail-row');
-  const details = make('button', 'Detalhes');
+  const details = make('button', 'Detalhes', 'group-details-button');
   details.type = 'button';
   details.setAttribute('aria-label', 'Detalhes de ' + appGroup.name);
   details.onclick = () => openDetails('group', appGroup.id);
-  header.append(button, details);
+  header.append(button, details, make('strong', duration(amount), 'group-duration'));
   block.append(header, children);
   syncExpanded();
   return block;
@@ -353,6 +356,142 @@ function renderDetails(rows) {
   $('detailMore').hidden = sessions.length <= detailLimit;
 }
 
+const weeklyColors = ['#6688f5', '#34bda4', '#a885ee', '#e99b54', '#dc709a', '#62b8dc', '#b1a94d', '#b68b76'];
+const weekdayShort = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+function categoryTotals(days) {
+  const totals = new Map();
+  for (const day of days) for (const [category, amount] of day)
+    totals.set(category, (totals.get(category) ?? 0) + amount);
+  return totals;
+}
+function dateInput(day) {
+  return new Date(+day - day.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function openWeeklyDay(day) {
+  showView('overview');
+  $('customPeriod').hidden = true;
+  document.querySelector('[data-period="custom"]').setAttribute('aria-expanded', 'false');
+  const value = dateInput(day);
+  $('periodStart').value = $('periodEnd').value = value;
+  customRange = { start: value, end: value };
+  setPeriod('custom');
+}
+function renderWeekly() {
+  if (!weeklyReport || goalEditor.open) return;
+  const { from, until, rows, current, previous, goals } = weeklyReport;
+  const live = current ? [...rows, current] : rows;
+  const days = weeklyCategoryDays(live);
+  const totals = categoryTotals(days);
+  const prior = categoryTotals(weeklyCategoryDays(previous));
+  const categories = [...new Set([...totals.keys(), ...prior.keys()])].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  const colors = new Map(categories.map((category, index) => [category, weeklyColors[index % weeklyColors.length]]));
+  const sum = values => [...values.values()].reduce((total, value) => total + value, 0);
+  const total = sum(totals), previousTotal = sum(prior);
+  $('weeklyPeriod').textContent = rangeLabel(from, until);
+  $('weeklyMetrics').replaceChildren(...[
+    ['Esta semana', duration(total)],
+    ['Semana anterior no mesmo ponto', duration(previousTotal)],
+    ['Diferença', (total > previousTotal ? '+' : total < previousTotal ? '−' : '') + duration(Math.abs(total - previousTotal))]
+  ].map(([label, value]) => {
+    const card = make('article', undefined, 'card metric');
+    card.append(make('span', label, 'muted'), make('strong', value));
+    return card;
+  }));
+  const largestChange = categories.map(category => [category, (totals.get(category) ?? 0) - (prior.get(category) ?? 0)])
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0];
+  const change = largestChange && largestChange[1]
+    ? largestChange[0] + ' teve ' + duration(Math.abs(largestChange[1])) +
+      (largestChange[1] > 0 ? ' a mais' : ' a menos') + ' que no mesmo período da semana anterior.'
+    : 'Clique em um dia para abrir os registros daquele dia.';
+  if ($('weeklyChange').textContent !== change) $('weeklyChange').textContent = change;
+  const max = Math.max(1, ...days.map(sum));
+  $('weeklyChart').replaceChildren(...days.map((usage, index) => {
+    const day = new Date(from);
+    day.setDate(day.getDate() + index);
+    const button = make('button', undefined, 'weekly-day');
+    button.type = 'button';
+    button.disabled = +day > until;
+    button.onclick = () => openWeeklyDay(day);
+    const bar = make('span', undefined, 'weekly-bar');
+    bar.setAttribute('aria-hidden', 'true');
+    const descriptions = [];
+    for (const category of categories) {
+      const amount = usage.get(category);
+      if (!amount) continue;
+      const segment = make('span');
+      segment.style.height = amount / max * 100 + '%';
+      segment.style.backgroundColor = colors.get(category);
+      bar.append(segment);
+      descriptions.push(category + ': ' + duration(amount));
+    }
+    const label = weekdayShort[index] + ' ' + date.format(day);
+    button.title = label + (descriptions.length ? ' · ' + descriptions.join(' · ') : ' · sem registros');
+    button.setAttribute('aria-label', button.title + ' · abrir dia');
+    button.append(make('span', weekdayShort[index]), bar, make('strong', duration(sum(usage))));
+    return button;
+  }));
+  $('weeklyLegend').replaceChildren(...categories.filter(category => totals.has(category)).map(category => {
+    const item = make('span');
+    const color = make('i');
+    color.style.backgroundColor = colors.get(category);
+    color.setAttribute('aria-hidden', 'true');
+    item.append(color, make('span', category));
+    return item;
+  }));
+  $('newGoal').disabled = false;
+  fill('goalList', goals.map(goal => {
+    const item = make('div', undefined, 'goal-item');
+    const limit = goal.minutes * 60000;
+    const target = duration(limit);
+    const label = goal.target + ' · ' + (goal.scope === 'project' ? 'Projeto' : 'Categoria') +
+      ' · ' + (goal.mode === 'maximum' ? 'Limite de ' : 'Meta de ') + target;
+    const progress = make('progress');
+    progress.max = limit;
+    progress.value = Math.min(limit, goal.progress);
+    progress.setAttribute('aria-label', label);
+    const status = goal.progress >= limit
+      ? (goal.mode === 'maximum' ? 'Limite atingido' : 'Meta atingida')
+      : duration(limit - goal.progress) + (goal.mode === 'maximum' ? ' até o limite' : ' para atingir a meta');
+    item.append(listRow(label, 'Editar', () => openGoal(goal)), progress,
+      make('p', duration(goal.progress) + ' registrados · ' + status + (goal.notify ? ' · Avisos ligados' : ''), 'muted'));
+    return item;
+  }));
+  if (!goals.length) $('goalList').replaceChildren(make('p', 'Nenhuma meta semanal configurada.', 'muted'));
+}
+function goalOptions() {
+  const key = $('goalScope').value;
+  const targets = new Set([...weeklyReport.rows, ...(snapshot?.rules ?? [])].map(row => row[key]).filter(Boolean));
+  $('goalTargets').replaceChildren(...[...targets].sort().map(name => new Option(name)));
+}
+function openGoal(goal = { id: 0, scope: 'category', target: '', mode: 'maximum', minutes: 480, notify: false }) {
+  selectedGoal = goal;
+  $('goalScope').value = goal.scope;
+  $('goalTarget').value = goal.target;
+  $('goalMode').value = goal.mode;
+  $('goalMinutes').value = goal.minutes;
+  $('goalNotify').checked = goal.notify;
+  $('deleteGoal').hidden = !goal.id;
+  $('goalError').hidden = true;
+  goalOptions();
+  goalEditor.showModal();
+}
+$('newGoal').onclick = () => openGoal();
+$('closeGoal').onclick = () => goalEditor.close();
+$('goalScope').onchange = goalOptions;
+$('deleteGoal').onclick = () => edit('deleteGoal', { id: selectedGoal.id });
+$('goalForm').onsubmit = event => {
+  event.preventDefault();
+  edit('saveGoal', {
+    id: selectedGoal.id, scope: $('goalScope').value, target: $('goalTarget').value,
+    mode: $('goalMode').value, minutes: Number($('goalMinutes').value), notify: $('goalNotify').checked
+  });
+};
+
+function renderCollectionStatus(paused) {
+  $('toggle').disabled = false;
+  $('toggle').textContent = paused ? 'Retomar coleta' : 'Pausar coleta';
+  $('status').replaceChildren(make('span', '', paused ? 'dot off' : 'dot'), paused ? 'Coleta pausada' : 'Coleta ativa');
+}
 function render(force = false) {
   if (!snapshot) return;
   const { paused, seconds, rules, current, update, groups, startup } = snapshot;
@@ -370,10 +509,13 @@ function render(force = false) {
   if ($('updateStatus').textContent !== updateStatus) $('updateStatus').textContent = updateStatus;
   $('newRule').disabled = false;
   $('newGroup').disabled = false;
-  $('toggle').disabled = false;
-  $('toggle').textContent = paused ? 'Retomar coleta' : 'Pausar coleta';
-  $('status').replaceChildren(make('span', '', paused ? 'dot off' : 'dot'), paused ? 'Coleta pausada' : 'Coleta ativa');
+  renderCollectionStatus(paused);
   if (!settingsDirty && document.activeElement !== $('seconds')) $('seconds').value = seconds;
+  if (!trayDirty && document.activeElement !== $('trayCategory')) $('trayCategory').value = snapshot.trayCategory;
+  if (view === 'settings' && document.activeElement !== $('trayCategory')) {
+    const names = new Set([...snapshot.rows, ...rules].map(row => row.category).filter(Boolean));
+    $('trayCategories').replaceChildren(...[...names].sort().map(name => new Option(name)));
+  }
   if (!force && (editor.open || groupEditor.open || document.activeElement?.closest('.row, #more, #moreFocus, .heatmap'))) return;
 
   const rows = current ? [...snapshot.rows, current] : snapshot.rows;
@@ -424,6 +566,7 @@ function openGroup(group = { id: 0, name: '', apps: [] }) {
   $('groupMembers').replaceChildren();
   $('groupAppsStatus').textContent = 'Buscando aplicativos…';
   $('groupError').hidden = true;
+  $('goalError').hidden = true;
   $('deleteGroup').hidden = !group.id;
   $('saveGroup').disabled = true;
   groupEditor.showModal();
@@ -562,6 +705,12 @@ $('settingsForm').onsubmit = event => {
   settingsDirty = false;
   send('settings', { seconds: Number($('seconds').value) });
 };
+$('trayCategory').oninput = () => { trayDirty = true; };
+$('trayForm').onsubmit = event => {
+  event.preventDefault();
+  trayDirty = false;
+  send('trayCategory', { category: $('trayCategory').value });
+};
 function showView(next) {
   $(view).hidden = true;
   view = next;
@@ -572,7 +721,8 @@ function showView(next) {
     else item.removeAttribute('aria-current');
   }
   window.scrollTo(0, 0);
-  render(true);
+  if (next === 'weekly') { renderWeekly(); send('weeklyReport'); }
+  else render(true);
 }
 for (const button of document.querySelectorAll('[data-view]')) {
   button.onclick = () => showView(button.dataset.view);
@@ -620,6 +770,24 @@ $('customPeriod').onsubmit = event => {
   setPeriod('custom');
 };
 bridge?.addEventListener('message', ({ data }) => {
+  if (['weeklyReport', 'saveGoal', 'deleteGoal'].includes(data.action)) {
+    const completed = pending === data.action;
+    if (completed) pending = null;
+    const error = completed && goalEditor.open ? $('goalError') : $('error');
+    if (data.error) {
+      error.textContent = data.detail || data.error;
+      error.hidden = false;
+      return;
+    }
+    error.hidden = true;
+    weeklyReport = data;
+    if (completed && goalEditor.open) goalEditor.close();
+    if (view === 'weekly') {
+      renderCollectionStatus(data.paused);
+      if (completed || !document.activeElement?.closest('.row, .weekly-day')) renderWeekly();
+    }
+    return;
+  }
   if (data.action === 'groupApps') {
     if (!groupEditor.open) return;
     if (data.error) $('groupAppsStatus').textContent = data.error;
@@ -669,7 +837,9 @@ bridge?.addEventListener('message', ({ data }) => {
 });
 if (bridge) {
   send('refresh');
-  setInterval(() => { if (!pending && !document.hidden) send('refresh'); }, 2500);
+  setInterval(() => {
+    if (!pending && !document.hidden) send(view === 'weekly' ? 'weeklyReport' : 'refresh');
+  }, 2500);
 } else {
   $('status').textContent = 'Abra este painel pelo aplicativo Pulso';
 }

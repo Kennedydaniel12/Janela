@@ -68,6 +68,8 @@ sealed class Dashboard : Form
     UpdatePackage? pendingInstaller;
     bool checkingUpdate, checkedUpdate;
     string? updateError;
+    string trayCategory;
+    long nextTrayRefresh;
 
     public Dashboard(History history, EventWaitHandle openPanel)
     {
@@ -75,6 +77,7 @@ sealed class Dashboard : Form
         tracker = new Tracker(history.Record);
         seconds = history.IdleSeconds;
         paused = history.Paused;
+        trayCategory = history.TrayCategory;
         Text = "Pulso";
         Width = 1150;
         Height = 790;
@@ -105,7 +108,52 @@ sealed class Dashboard : Form
     }
 
     void Open() { Show(); WindowState = FormWindowState.Normal; Activate(); }
-    void UpdateTray() => tray.Text = paused ? "Pulso · Pausado" : "Pulso · Monitorando";
+    static DateTime WeekStart(DateTime day) => day.Date.AddDays(-(((int)day.DayOfWeek + 6) % 7));
+    static long UnixTime(DateTime local) => new DateTimeOffset(local).ToUnixTimeMilliseconds();
+    static string ShortDuration(long milliseconds)
+    {
+        var minutes = milliseconds / 60000;
+        return minutes >= 60 ? $"{minutes / 60} h {minutes % 60} min" : $"{minutes} min";
+    }
+
+    long TrackedTime(long from, long until, string scope, string target)
+    {
+        var duration = history.TrackedMilliseconds(from, until, scope, target);
+        var live = tracker.Current(from, until);
+        if (live != null && live.State != "idle" && (scope == "" ||
+            (scope == "category" && live.Category == target) ||
+            (scope == "project" && live.Project == target && live.State == "active")))
+            duration += live.End - live.Start;
+        return duration;
+    }
+
+    void UpdateTray()
+    {
+        var scope = trayCategory.Length == 0 ? "" : "category";
+        var label = scope == "" ? "Uso" : trayCategory[..Math.Min(trayCategory.Length, 24)];
+        var total = TrackedTime(UnixTime(DateTime.Today), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), scope, trayCategory);
+        var status = paused ? "Pausado" : locked || suspended ? "Em espera" : "Coleta ativa";
+        tray.Text = $"{label} hoje: {ShortDuration(total)} · {status}";
+    }
+
+    void RefreshTrayAndGoals()
+    {
+        if (Environment.TickCount64 < nextTrayRefresh) return;
+        nextTrayRefresh = Environment.TickCount64 + 15000;
+        UpdateTray();
+        if (locked || suspended || closingSession) return;
+        var week = UnixTime(WeekStart(DateTime.Today));
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        foreach (var goal in history.WeeklyGoals())
+        {
+            if (!goal.Notify || goal.NotifiedWeek == week ||
+                TrackedTime(week, now, goal.Scope, goal.Target) < goal.Minutes * 60000L) continue;
+            var title = goal.Mode == "minimum" ? "Meta semanal atingida" : "Limite semanal atingido";
+            tray.ShowBalloonTip(5000, title, $"{goal.Target} chegou a {ShortDuration(goal.Minutes * 60000L)} nesta semana.", ToolTipIcon.Info);
+            history.MarkGoalNotified(goal.Id, week);
+            break;
+        }
+    }
     void Toggle()
     {
         history.Paused = !paused;
@@ -119,6 +167,7 @@ sealed class Dashboard : Form
     void Sample()
     {
         if (!ContainsFocus && updateError == null && InstallUpdate()) return;
+        RefreshTrayAndGoals();
         if (paused || locked || suspended || closingSession) return;
         var now = DateTimeOffset.UtcNow;
         var idle = Native.Idle();
@@ -257,6 +306,22 @@ sealed class Dashboard : Form
         var action = data.GetProperty("action").GetString();
         switch (action)
         {
+            case "weeklyReport":
+                SendWeeklyReport();
+                return;
+            case "saveGoal":
+                history.SaveWeeklyGoal(ReadId(data), Field(data, "scope"), Field(data, "target"),
+                    Field(data, "mode"), data.GetProperty("minutes").GetInt32(), data.GetProperty("notify").GetBoolean());
+                SendWeeklyReport(action);
+                return;
+            case "deleteGoal":
+                history.DeleteWeeklyGoal(ReadId(data));
+                SendWeeklyReport(action);
+                return;
+            case "trayCategory":
+                history.TrayCategory = trayCategory = Field(data, "category");
+                UpdateTray();
+                break;
             case "startup":
                 if (!updatesEnabled) throw new ArgumentException("Instale o Pulso para habilitar o início com o Windows.");
                 using (var key = Registry.CurrentUser.CreateSubKey(StartupKey))
@@ -355,12 +420,32 @@ sealed class Dashboard : Form
             startup = new { enabled = Registry.GetValue(@"HKEY_CURRENT_USER\" + StartupKey, StartupName, null) is string,
                 available = updatesEnabled },
             rules = history.Rules, groups,
+            trayCategory,
             update = new
             {
                 version = Updater.InstalledVersion.ToString(3),
                 available = pendingInstaller?.Version.ToString(3),
                 enabled = updatesEnabled, checking = checkingUpdate, checkedUpdate, error = updateError
             }
+        });
+    }
+
+    void SendWeeklyReport(string action = "weeklyReport")
+    {
+        var start = WeekStart(DateTime.Today);
+        var now = DateTime.Now;
+        var from = UnixTime(start);
+        var until = UnixTime(now);
+        var goals = history.WeeklyGoals().Select(goal => new
+        {
+            goal.Id, goal.Scope, goal.Target, goal.Mode, goal.Minutes, goal.Notify,
+            progress = TrackedTime(from, until, goal.Scope, goal.Target)
+        });
+        Send(new
+        {
+            action, from, until, paused, rows = history.Read(from, until), current = tracker.Current(from, until),
+            previous = history.Read(UnixTime(start.AddDays(-7)), UnixTime(now.AddDays(-7))),
+            goals
         });
     }
 

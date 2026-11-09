@@ -15,6 +15,7 @@
     <div class="brand"><img alt="" class="logo" src="pulso.svg"> Pulso</div>
     <nav aria-label="Menu principal">
       <button data-view="overview" aria-current="page">Visão geral</button>
+      <button data-view="weekly">Resumo semanal</button>
       <button data-view="rules">Regras</button>
       <button data-view="settings">Configurações</button>
     </nav>
@@ -95,6 +96,23 @@
         <button id="more" hidden>Mostrar mais intervalos</button>
       </article>
     </section>
+    <section id="weekly" hidden>
+      <div class="hero"><div><p class="eyebrow">USO POR CATEGORIA</p><h1>Resumo semanal</h1><p id="weeklyPeriod" class="muted"></p></div></div>
+      <div id="weeklyMetrics" class="metrics"></div>
+      <article class="card">
+        <h2>Tempo por dia</h2>
+        <p id="weeklyChange" class="muted" role="status"></p>
+        <div id="weeklyChart" class="weekly-chart" aria-label="Tempo por categoria e dia"></div>
+        <div id="weeklyLegend" class="weekly-legend"></div>
+      </article>
+      <article class="card">
+        <div class="insight-header">
+          <div><h2>Metas semanais</h2><p class="muted">As metas reiniciam às segundas. Avisos são opcionais.</p></div>
+          <button id="newGoal" class="primary" type="button" disabled>Nova meta</button>
+        </div>
+        <div id="goalList"></div>
+      </article>
+    </section>
     <section id="details" hidden>
       <button id="closeDetails" class="back-button" type="button">← Voltar à Visão geral</button>
       <div class="hero">
@@ -141,6 +159,14 @@
         <label class="startup-option"><input id="startWithWindows" type="checkbox" disabled> Iniciar o Pulso com o Windows, na bandeja</label>
         <p class="muted">A pausa manual é preservada quando o Pulso abre novamente.</p>
       </article>
+      <form id="trayForm" class="card">
+        <h2>Contador na bandeja</h2>
+        <p class="muted">Passe o mouse sobre o ícone do Pulso para ver o tempo de hoje.</p>
+        <label for="trayCategory">Categoria exibida</label>
+        <input id="trayCategory" maxlength="160" list="trayCategories" placeholder="Todas as categorias">
+        <datalist id="trayCategories"></datalist>
+        <div class="actions"><button class="primary">Salvar contador</button></div>
+      </form>
       <form id="settingsForm" class="card">
         <h2>Inatividade</h2>
         <p class="muted">O tempo após este limite é separado como inatividade. Vídeo detectado na janela em foco mantém a contagem.</p>
@@ -183,6 +209,23 @@
         <button id="applyRetro" class="primary" type="button" hidden>Salvar e aplicar ao histórico</button>
       </div>
       <div class="actions"><button type="button" id="deleteRule" hidden>Excluir regra</button><button class="primary">Salvar</button></div>
+    </form>
+  </dialog>
+  <dialog id="goalEditor" aria-labelledby="goalEditorTitle">
+    <form id="goalForm">
+      <header class="editor-header"><h2 id="goalEditorTitle">Meta semanal</h2><button type="button" id="closeGoal" aria-label="Fechar painel">×</button></header>
+      <label for="goalScope">Medir tempo de</label>
+      <select id="goalScope"><option value="category">Categoria (atividade e reprodução)</option><option value="project">Projeto (atividade)</option></select>
+      <label for="goalTarget">Categoria ou projeto</label>
+      <input id="goalTarget" maxlength="160" list="goalTargets" required placeholder="Ex.: Jogos">
+      <datalist id="goalTargets"></datalist>
+      <label for="goalMode">Tipo de meta</label>
+      <select id="goalMode"><option value="minimum">Atingir pelo menos</option><option value="maximum">Ficar abaixo de</option></select>
+      <label for="goalMinutes">Duração semanal em minutos</label>
+      <input id="goalMinutes" type="number" min="1" max="10080" required>
+      <label class="startup-option"><input id="goalNotify" type="checkbox"> Avisar ao atingir esta duração</label>
+      <p id="goalError" role="alert" hidden></p>
+      <div class="actions"><button type="button" id="deleteGoal" hidden>Excluir meta</button><button class="primary">Salvar meta</button></div>
     </form>
   </dialog>
   <dialog id="groupEditor" aria-labelledby="groupEditorTitle">

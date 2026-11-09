@@ -27,6 +27,19 @@ function buildHourMap(rows) {
   return buckets;
 }
 
+function weeklyCategoryDays(rows) {
+  const days = Array.from({ length: 7 }, () => new Map());
+  for (const row of rows) {
+    if (row.state === 'idle') continue;
+    const name = row.category || 'Sem categoria';
+    visitLocalHours(row, (cell, start, end) => {
+      const day = days[Math.floor(cell / 24)];
+      day.set(name, (day.get(name) ?? 0) + end - start);
+    });
+  }
+  return days;
+}
+
 function detailRows(rows, detail, groups) {
   const members = detail.kind === 'group' ? groups.find(group => group.id === detail.key)?.apps ?? [] : [];
   return rows.filter(row => row.state !== 'idle' && (

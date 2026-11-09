@@ -82,13 +82,28 @@ button.row { padding-inline: 5px; }
 .detail-title .app-icon { width: 36px; height: 36px; }
 .detail-title h1 { overflow-wrap: anywhere; }
 .detail-actions { flex-wrap: wrap; }
-.group-detail-row .row { flex: 1; }
-.group-detail-row > button:last-child { flex: 0 0 auto; }
+.group-detail-row { gap: 6px; border-bottom: 1px solid var(--line); }
+.group-detail-row .row { width: auto; flex: 0 1 auto; min-width: 0; border-bottom: 0; }
+.group-details-button { flex: 0 0 auto; padding: 4px 8px; font-size: 12px; }
+.group-duration { margin-inline-start: auto; padding-inline-end: 5px; white-space: nowrap; font-size: 13px; }
 .detail-chart { max-height: 420px; overflow: auto; }
 .detail-chart-row { display: grid; grid-template-columns: minmax(60px, 95px) 1fr max-content; align-items: center; gap: 10px; margin-block: 7px; }
 .detail-chart-track { background: var(--bg); display: flex; overflow: hidden; border-radius: 6px; height: 12px; }
 .detail-chart-track span { flex: 0 0 auto; }
 #detailMore { margin-top: 10px; }
+.weekly-chart { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.weekly-day { display: grid; grid-template-rows: auto 124px auto; justify-items: center; gap: 5px; padding: 6px 2px; font-size: 12px; }
+.weekly-day strong { text-align: center; font-size: 11px; }
+.weekly-bar { display: flex; flex-direction: column-reverse; width: min(44px, 85%); height: 100%; border-radius: 5px; overflow: hidden; background: var(--bg); }
+.weekly-bar span { flex: 0 0 auto; }
+.weekly-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; }
+.weekly-legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.weekly-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.goal-item { padding: 8px 0 12px; border-bottom: 1px solid var(--line); }
+.goal-item:last-child { border-bottom: 0; }
+.goal-item progress { width: 100%; height: 9px; accent-color: var(--primary); }
+.goal-item p { margin: 4px 0; font-size: 13px; }
+#goalError { color: var(--danger); }
 .app-group-members { padding-inline-start: 20px; }
 .group-chevron { color: var(--muted); }
 .group-fieldset { border: 0; padding: 0; margin: 18px 0 0; min-width: 0; }

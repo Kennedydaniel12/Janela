@@ -6,6 +6,7 @@ sealed record Activity(string App, string Category, string Project, string State
 sealed record Interval(long Id, long Start, long End, string App, string Category, string Project, string State);
 sealed record Rule(long Id, string App, string Contains, string Category, string Project);
 sealed record AppGroup(long Id, string Name, List<string> Apps);
+sealed record WeeklyGoal(long Id, string Scope, string Target, string Mode, int Minutes, bool Notify, long NotifiedWeek);
 
 sealed class Tracker(Action<Activity, long, long> record)
 {
@@ -72,6 +73,11 @@ sealed class History : IDisposable
                 id INTEGER PRIMARY KEY, app TEXT NOT NULL, fragment TEXT NOT NULL COLLATE NOCASE,
                 category TEXT NOT NULL, project TEXT NOT NULL, UNIQUE(app, fragment));
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS preferences(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS weekly_goals(
+                id INTEGER PRIMARY KEY, scope TEXT NOT NULL, target TEXT NOT NULL,
+                mode TEXT NOT NULL, minutes INTEGER NOT NULL, notify INTEGER NOT NULL,
+                notified_week INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS app_groups(
                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE);
             CREATE TABLE IF NOT EXISTS app_group_members(
@@ -99,6 +105,65 @@ sealed class History : IDisposable
     {
         get => ReadSetting("paused", 0) != 0;
         set => WriteSetting("paused", value ? 1 : 0);
+    }
+
+    public string TrayCategory
+    {
+        get
+        {
+            using var cmd = Command("SELECT value FROM preferences WHERE key='trayCategory'");
+            return cmd.ExecuteScalar() as string ?? "";
+        }
+        set
+        {
+            using var cmd = Command("INSERT OR REPLACE INTO preferences VALUES('trayCategory',$value)", ("$value", value));
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public List<WeeklyGoal> WeeklyGoals()
+    {
+        using var cmd = Command("SELECT id,scope,target,mode,minutes,notify,notified_week FROM weekly_goals ORDER BY id");
+        using var rows = cmd.ExecuteReader();
+        List<WeeklyGoal> goals = [];
+        while (rows.Read()) goals.Add(new(rows.GetInt64(0), rows.GetString(1), rows.GetString(2), rows.GetString(3),
+            rows.GetInt32(4), rows.GetBoolean(5), rows.GetInt64(6)));
+        return goals;
+    }
+
+    public void SaveWeeklyGoal(long id, string scope, string target, string mode, int minutes, bool notify)
+    {
+        if (scope is not ("category" or "project") || target.Length == 0 ||
+            mode is not ("minimum" or "maximum") || minutes is < 1 or > 10080)
+            throw new ArgumentException("Informe um alvo e uma duração de 1 a 10.080 minutos.");
+        using var cmd = Command(id == 0
+            ? "INSERT INTO weekly_goals(scope,target,mode,minutes,notify) VALUES($scope,$target,$mode,$minutes,$notify)"
+            : "UPDATE weekly_goals SET scope=$scope,target=$target,mode=$mode,minutes=$minutes,notify=$notify WHERE id=$id",
+            ("$id", id), ("$scope", scope), ("$target", target), ("$mode", mode), ("$minutes", minutes), ("$notify", notify));
+        cmd.ExecuteNonQuery();
+    }
+
+    public void DeleteWeeklyGoal(long id)
+    {
+        using var cmd = Command("DELETE FROM weekly_goals WHERE id=$id", ("$id", id));
+        cmd.ExecuteNonQuery();
+    }
+
+    public void MarkGoalNotified(long id, long week)
+    {
+        using var cmd = Command("UPDATE weekly_goals SET notified_week=$week WHERE id=$id", ("$id", id), ("$week", week));
+        cmd.ExecuteNonQuery();
+    }
+
+    public long TrackedMilliseconds(long from, long until, string scope, string target)
+    {
+        using var cmd = Command("""
+            SELECT coalesce(sum(min(end,$until)-max(start,$from)),0)
+            FROM intervals WHERE end>$from AND start<$until AND state<>'idle' AND (
+                $scope='' OR ($scope='category' AND category=$target)
+                OR ($scope='project' AND project=$target AND state='active'))
+            """, ("$from", from), ("$until", until), ("$scope", scope), ("$target", target));
+        return Convert.ToInt64(cmd.ExecuteScalar());
     }
 
     int ReadSetting(string key, int fallback)
